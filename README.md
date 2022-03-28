@@ -12,7 +12,7 @@ This repository uses data downloaded from field instrumentation maintained withi
     
 ### Setup:
     
-Required functions are found in the functions folder and are labeled by data type or instrumentation, using the same nomenclature as the output script. 
+Cleaning scripts are found in the src folder. Required functions are found in the functions folder and are labeled by data type or instrumentation, using the same nomenclature as the cleaning script. Additional markdown documents intended to summarize data are stored...
    
 #### Data Collection  and analysis 
 
