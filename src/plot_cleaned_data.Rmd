@@ -1,0 +1,89 @@
+---
+title: "plot_clean_data"
+author: "Lauren Kremer"
+date: "1/16/2022"
+output: html_document
+---
+
+
+Script for viewing cleaned data
+
+1) within streams, across reaches
+2) across catchments
+3) across years
+
+Requires cleaned data
+
+# Load packages
+
+```{r setup, include=FALSE}
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel',
+                    'knitr', 'plotly', 'anytime') #tools for plots and dates
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+# Make a list of years.  For every year in the list, find the desired files based on 
+# site, location and datatype
+
+```{r}
+split_path <- function(path) {
+    rev(setdiff(strsplit(path,"/|\\\\")[[1]], "")) 
+} 
+#keep this function instead of strsplit for pc yse
+
+opn_concat <- function(interfiles, location) {
+  file_path <- paste(getwd()) 
+  path_list <- list.files(file_path, pattern= "^202.*[0-9]{1}", full.names=TRUE) #list folders starting in 2020
+  fldr_paths <- lapply(path_list, function(x) {
+    folderpaths <- paste(x, interfiles,'/', location, sep = "")
+    return(folderpaths)
+    }) # return all folders of the desired location from 2020 and after
+  fldrpaths <- unlist(fldr_paths)
+          
+    csvnames <- lapply(fldrpaths, function(x) {
+      file_list <- paste(x, '/', list.files(x), sep = "")
+      return(file_list)
+      }) # return all the csvs in the folders of the desired location from 2020 and after
+   csvnames <-unlist(csvnames)
+   
+   data <- lapply(csvnames, function(x) {
+     dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+     dat$year <- unlist(split_path(x))[7] # add the year to the appropriate dataframe
+     #dat$site <- unlist(strsplit(unlist(split_path(x))[1], "_"))[1] #can use this if need to add site
+    return(dat)
+   })
+   unlist(data) 
+   # combine all tables into one dataframe with location, site and year columns 
+   combined.data <- do.call(rbind, data)
+   combined.data <- combined.data %>%
+      mutate(datetime = anytime(as.character(datetime)))%>%
+      #select(-one_of(drops))%>%
+      arrange(datetime)
+ }
+
+
+
+```
+
+```{r}
+
+interfiles <- '/NSF/data/stage_caprod/3_cleaned'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+location<- 'dh'
+
+stage_clean <- opn_concat(interfiles, location)
+
+```
+
