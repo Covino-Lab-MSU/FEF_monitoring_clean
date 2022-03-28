@@ -12,11 +12,11 @@ This repository uses data downloaded from field instrumentation maintained withi
     
 ### Setup:
     
-Cleaning scripts are found in the src folder. Required functions are found in the functions folder and are labeled by data type or instrumentation, using the same nomenclature as the cleaning script. Additional markdown documents intended to summarize data are stored...
+Cleaning scripts are found in the src folder and are identified by data type or instrumentation. Most scripts allow for datasets to be imported according to 'site', so are run for each monitoring site. Required functions are found in the functions folder and are labeled by data type or instrumentation, using the same nomenclature as the cleaning script it should be paired with. Additional markdown documents intended to summarize data are stored...
    
 #### Data Collection  and analysis 
 
-R script required to collect, review, and analyze data are contained in the "scripts" directory and numbered according to workflow  All datasets and output folders are currently maintained locally (later: can be imported from..?) 
+R script required to collect, review, and analyze data are contained in the "scripts" directory and numbered according to workflow (or will be).  All datasets and output folders are currently maintained locally (later: can be imported from..?) 
 
 ### Maintainers:
 Lauren Kremer, 
