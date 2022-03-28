@@ -1,0 +1,191 @@
+---
+title: "sample_counts"
+author: "Lauren Kremer"
+date: "1/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('ggplot', 'tidyverse', 'lubridate', 'plotly') #tools for plot titles 
+```
+
+
+
+```{r cars}
+file_path <- "/Users/laurenkremer/Dropbox/Fraser Experimental Forest/2021/NSF/data/sample_log_for_r.csv"
+
+dat <- read.table(file_path, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+```
+
+
+```{r pressure, echo=FALSE}
+
+dat$catchment <- as.factor(dat$catchment)
+dat$site.type <- as.factor(dat$site.type) 
+dat$well.distance.from.stream <- as.factor(dat$well.distance.from.stream)
+dat$Location <- as.factor(dat$Location)
+
+dat$Date <- lubridate::mdy(dat$Date)
+
+dat <- subset(dat, dat$FTICR.MS != "NA")
+```
+
+
+```{r}
+dat_dh <- subset(dat, dat$catchment == 'Deadhorse')
+dat_dh <- dat_dh[, c('Location', 'FTICR.MS', 'Date', 'site')]
+ggp <- ggplot(dat_dh, aes(Date, fill = Location)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+
+```{r}
+dat_lx <- subset(dat, dat$catchment == 'Lexen')
+dat_lx <- dat_lx[, c('Location', 'FTICR.MS', 'Date', 'site')]
+ggp <- ggplot(dat_lx, aes(Date, fill = Location)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+```{r}
+dat_e <- subset(dat, dat$catchment == 'Fool')
+dat_e <- dat_e[, c('Location', 'FTICR.MS', 'Date','site.type', 'site')]
+ggp <- ggplot(dat_e, aes(Date, fill = site.type)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+```{r}
+dat_e <- subset(dat, dat$catchment == 'East St. Louis')
+dat_e <- dat_e[, c('Location', 'FTICR.MS', 'Date','site.type', 'site')]
+ggp <- ggplot(dat_e, aes(Date, fill = site.type)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+```{r}
+dat_out <- subset(dat, dat$site == 'dh1' |dat$site == 'fool1'| dat$site == 'lexen1')
+dat_out <- dat_out[, c('Location', 'FTICR.MS', 'Date','site.type', 'site')]
+ggp <- ggplot(dat_out, aes(Date, fill = site.type)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  scale_y_continuous(breaks= pretty_breaks())+
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+```{r}
+dat_e <- subset(dat, dat$catchment == 'Lexen')
+dat_e <- dat_e[, c('Location', 'FTICR.MS', 'Date','site.type', 'site')]
+ggp <- ggplot(dat_e, aes(Date, fill = site.type)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  scale_y_continuous(breaks= pretty_breaks())+
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+```{r}
+dat_e <- subset(dat, dat$catchment == 'Deadhorse')
+dat_e <- dat_e[, c('Location', 'FTICR.MS', 'Date','site.type', 'site')]
+ggp <- ggplot(dat_e, aes(Date, fill = site.type)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  scale_y_continuous(breaks= pretty_breaks())+
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+```{r}
+dat_e <- subset(dat, dat$catchment == 'East St. Louis')
+dat_e <- dat_e[, c('Location', 'FTICR.MS', 'Date','site.type', 'site')]
+ggp <- ggplot(dat_e, aes(Date, fill = site.type)) +  # Create ggplot2 histogram with default colors
+  geom_histogram() +
+  scale_y_continuous(breaks= pretty_breaks())+
+  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
+  theme(axis.text.x = element_text(angle = 90))
+
+#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
+#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
+
+ggp
+```
+
+
+```{r}
+library(raster)
+
+dh <- raster("/Users/laurenkremer/Dropbox/fraser_ef_kremer/layers/deadhorse_ndvi_clipped.tif")
+
+dh <-hist(dh)
+```
+
+```{r}
+r <- raster("/Users/laurenkremer/Dropbox/fraser_ef_kremer/layers/fool_ndvi_clipped.tif")
+
+r <-hist(r)
+```
+
+
+```{r}
+lx <- raster("/Users/laurenkremer/Dropbox/fraser_ef_kremer/layers/lexen_ndvi_clipped.tif")
+
+lx <-hist(lx)
+```
+
+```{r}
+                 # centered at 6
+plot(r, col=rgb(0,0,1,1/4), xlim=c(0,.5))  # first histogram
+#plot(r, col=rgb(1,0,0,1/4), xlim=c(0,.5), add=T) 
+plot(lx, col=rgb(0,1,0,1/4), xlim=c(0,.5), add=T) 
+```
+
