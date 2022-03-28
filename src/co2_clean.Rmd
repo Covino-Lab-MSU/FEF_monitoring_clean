@@ -1,0 +1,175 @@
+---
+title: "co2_clean"
+author: "Lauren Kremer"
+date: "11/21/2021"
+output: html_document
+---
+
+Script for CO2 data from OM-CP-VOLT101A Voltage Data Logger
+
+1) removing bad data
+2) adjusting data for shifts 
+
+Requires CO2 raw data
+
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(xts)
+library(dygraphs)
+library(ggrepel)
+library(knitr)
+library(plotly)
+
+source('co2functions.R') #load helper functions
+```
+
+```{r}
+opn_concat_co <- function(interfiles, location, site) {
+  file_path <- paste(getwd(),interfiles,location,site, sep='/')
+  path_list <- paste(file_path, list.files(file_path), sep= '/')
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    # for each item in path list, grab the device number
+    #dat$logr_no <- unlist(strsplit(x, "_"))[9]
+    return(dat)
+  })
+  combined.data <- do.call(rbind, data)
+  drops <- c("formatted_datetime")
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy_hm(formatted_datetime))%>%
+    arrange(datetime)%>%
+    select(-one_of(drops))%>%
+    distinct()%>%
+    return(combined.data)
+}
+```
+
+#Clean By Site
+
+###Load data with opn_concat
+## requires same date format across all spreadsheets. I've been adding
+the column formatted_dataetime in excel with:
+ 1. for dd/mm/yyyy hh:mm:ss '=REPLACE(MID(B2,4,20),4,0,LEFT(B2,3))+0'
+ 2. for d/m/yy hh:mm '=TEXT(VALUE(B1916),"dd/mm/yyyy hh:mm")'
+```{r}
+
+interfiles <- '2_formatted'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+location<- 'fool'
+site<- 'fool4'
+```
+
+```{r}
+
+co2_raw <- opn_concat_co(interfiles, location, site)
+```
+
+
+```{r}
+#quick plot of stage
+co2_check_plot <- ggplot(co2_raw, aes(datetime,co2_ppm))+
+  geom_line()
+
+ggplotly(co2_check_plot)
+```
+
+###Create complete timeseries that includes any missing datetimes
+```{r}
+#check if collection interval is consistent in dataset. Code as written only handles one interval but can be modified if interval was changed. 
+checkTimeSteps()
+
+ts_interval<- co2_raw$datetime[2] - co2_raw$datetime[1]
+
+##round datetime to nearest whole interval
+co2_raw <- co2_raw%>%
+  mutate(datetime = round_date(datetime, as.period(ts_interval)))
+
+#create full timeseries 
+full_ts <- tibble(datetime=seq.POSIXt(co2_raw$datetime[1], co2_raw$datetime[length(co2_raw$datetime)], by=ts_interval))
+co2_raw <- full_join(full_ts,co2_raw)
+
+
+#identify missing timesteps:
+miss_ts <- filter(co2_raw, is.na(co2_ppm))%>%
+  pull(datetime)
+length(miss_ts)
+```
+
+
+1) Plot battery for quick checks
+2) Add ID column to use for identifying bad data
+3) Plot raw data with flag if raw level changes by more than x%. 
+
+```{r}
+#check battery
+DyBatt()
+
+```
+
+
+
+
+###save
+```{r}
+co2_raw$datetime <- format(co2_raw$datetime, usetz=TRUE)
+
+interfiles <- '3_cleaned'
+file_path <- paste(getwd(),interfiles,location,site, sep='/')
+#saveRDS(stage_final, file=paste0('data/cln/wtr_lvl_',loc_site,'.csv'))
+write_csv(co2_raw, file=paste0(file_path, '_clean.csv'))
+
+
+```
+
+
+```{r}
+opn_cleaned <- function(interfiles, location) {
+  file_path <- paste(getwd(),interfiles,location, sep='/')
+  path_list <- paste(file_path, list.files(file_path), sep= '/')
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    # for each item in path list, grab the site nname
+    sitecsv <- unlist(strsplit(x, "/"))[12]
+    dat$site <- unlist(strsplit(sitecsv, "_"))[1]
+    return(dat)
+  })
+  combined.data <- do.call(rbind, data)
+  #drops <- c("formatted_datetime")
+  combined.data <- combined.data %>%
+    #mutate(datetime = strptime(datetime, format = '%Y-%m-%dT%H:%M:%OS%z'))%>%
+    mutate(datetime = lubridate::as_datetime(datetime))%>%
+    arrange(site)%>%
+    #select(-one_of(drops))%>%
+    #distinct()%>%
+    return(combined.data)
+}
+
+```
+
+```{r}
+interfiles <- '3_cleaned'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+location <- 'fool'
+co2_cleaned <- opn_cleaned(interfiles, location)
+
+str(co2_cleaned)
+
+co2_cleaned <- subset(co2_cleaned, datetime <= '2021-07-23 20:00:00')
+                      
+```
+
+```{r}
+co2plot <- ggplot(data = co2_cleaned, aes(x=datetime, y=co2_ppm, color = site)) + 
+  geom_line() + 
+  xlab('Date') +
+  ylab('CO2 (ppm)') 
+
+
+
+ggplotly(co2plot)
+```
+
+
