@@ -6,7 +6,7 @@ This repository uses data downloaded from field instrumentation maintained withi
     
    * Aggregate all downloaded files for a given stream reach and instrument type
    * Look for anomalies within the data and remove data not representative of environmental parameters
-   * Compare instrumenation readings with manual readings (if available) and make adjustments as necessary 
+   * Compare instrumentation readings with manual readings (if available) and make adjustments as necessary 
    * Visualize clean data
    * Output clean data to 'clean' data file for future use in analysis
     
