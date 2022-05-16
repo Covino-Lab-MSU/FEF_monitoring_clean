@@ -1,0 +1,169 @@
+---
+title: "Campbell Cleaning"
+author: "Adapted for FEF by LKremer"
+date: "10/15/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Script for cleaning water level data from TruTrak capacitance rods. 
+Designed for surface water level measurements.
+Cleaning and QA/QC steps include 
+
+1) removing bad data
+2) adjusting data for shifts in logger position
+3) converting stage to water depth
+4) checking results against manual measurements.
+
+Requires capacitance rod raw data and manual measurement spreadsheet
+
+#Setup
+
+```{r}
+#setwd('..') # back out of 'src' folder to access other folders in project if opening script directly
+```
+
+
+```{r, include=FALSE}
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel',
+                    'knitr', 'plotly', 'reshape') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+
+
+source('./functions/campbellFunctions.R') #load helper functions
+```
+
+#Clean By Site
+
+###Load data with opn_concat
+## requires same date format across all spreadsheets. I've been adding
+the column formatted_dataetime in excel with:
+ 1. for dd/mm/yyyy hh:mm:ss '=REPLACE(MID(B2,4,20),4,0,LEFT(B2,3))+0'
+ 2. for d/m/yy hh:mm '=TEXT(VALUE(B2),"dd/mm/yyyy hh:mm")'
+ 
+
+```{r}
+interfiles <- './formatted_data/campbeldataloggers'
+# possible years 2020, 2021, 2022
+year <- '2020'
+# only outlet sites have campbells: dh1, est_louis1, fc1, lexen1
+site<- 'dh1'
+
+# this function found in cambellFunctions.R, adds a column for data year
+campb_raw_2020 <- opn_concat(interfiles, year, site)
+
+
+```
+
+# Another option to open all years and concatonate
+# The same thing can be done for all sites, for loops can be nested or consider lapply()
+```{r}
+years <- c('2020', '2021')
+campb_raw_allyr <- data.frame()
+
+for (year in years){
+  campb_raw <- opn_concat(interfiles, year, site)
+  campb_raw_allyr <- rbind(campb_raw_allyr,campb_raw)
+}
+
+campb_raw_allyr$monthday<-as.factor(format(
+campb_raw_allyr$datetime, format="%m-%d"))
+
+campb_raw_allyr$doy <- as.numeric(format(campb_raw_allyr$datetime, "%j"))
+
+```
+
+
+```{r}
+#quick plot of all variables for a single year
+
+camp_raw_resh <- campb_raw_2020 %>%
+  select(datetime, sc_us_us.cm, temp_c, cdom_ppb_qse, turb_ntu) %>%
+  melt(., id.vars = 'datetime')
+
+allvar <- ggplot(camp_raw_resh, aes(x = datetime, y = value, color = variable))+
+  geom_line()
+
+ggplotly(allvar)
+
+```
+
+```{r}
+#quick plot of conductivity for all years
+
+ggplot(data = campb_raw_allyr,
+       mapping = aes(x = doy, y = sc_us_us.cm,  color = year)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(facets = year ~ .) +
+  scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme_bw()
+```
+
+# or
+
+```{r}
+ggplot(data = campb_raw_allyr,
+       mapping = aes(x = doy, y = sc_us_us.cm,  color = year)) +
+  geom_point() +
+  geom_line() +
+  scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme_bw()
+
+```
+###Create complete timeseries that includes any missing datetimes
+
+```{r}
+#check if collection interval is consistent in dataset. Code as written only handles one interval but can be modified if interval was changed. 
+camp_raw_sub <- campb_raw_2020 %>%
+  select(datetime, sc_us_us.cm, temp_c, cdom_ppb_qse, turb_ntu)
+
+checkTimeSteps()
+
+ts_interval<- camp_raw_sub$datetime[2] - camp_raw_sub$datetime[1]
+
+##round datetime to nearest whole interval
+camp_raw_sub <- camp_raw_sub %>%
+  mutate(datetime = round_date(datetime, as.period(ts_interval)))
+
+#create full timeseries 
+full_ts <- tibble(datetime=seq.POSIXt(camp_raw_sub$datetime[1], camp_raw_sub$datetime[length(camp_raw_sub$datetime)], by=ts_interval))
+camp_raw_sub <- full_join(full_ts,camp_raw_sub)
+
+#identify missing timesteps:
+miss_ts <- filter(camp_raw_sub, is.na(sc_us_us.cm))%>%
+  pull(datetime)
+length(miss_ts)
+```
+
+### NEED TO CHECK INSTALLATION DATES, THOUGH CAMPBELLS CANT REALLY COLLECT DATA UNTILL HOOKED UP, LIKELY IN THE FIELD. 
+
+
+###save
+```{r}
+stage_final <- stage_adj%>%
+      dplyr::select(location, site, datetime, wtr_depth,level_flag)
+loc_site<- paste(location,site, sep='_')
+
+interfiles <- './data/3_cleaned_stage_caprod'
+file_path <- paste(interfiles,location,site, sep='/')
+#saveRDS(stage_final, file=paste0('data/cln/wtr_lvl_',loc_site,'.csv'))
+write_csv(stage_final, file=paste0(file_path, '_clean.csv'))
+
+```
+
+
+
