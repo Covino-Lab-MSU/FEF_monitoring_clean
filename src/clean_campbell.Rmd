@@ -7,16 +7,14 @@ editor_options:
   chunk_output_type: console
 ---
 
-Script for cleaning water level data from TruTrak capacitance rods. 
-Designed for surface water level measurements.
+Script for cleaning ...
 Cleaning and QA/QC steps include 
 
 1) removing bad data
-2) adjusting data for shifts in logger position
-3) converting stage to water depth
-4) checking results against manual measurements.
+2) 
+3) 
+4) checking 
 
-Requires capacitance rod raw data and manual measurement spreadsheet
 
 #Setup
 

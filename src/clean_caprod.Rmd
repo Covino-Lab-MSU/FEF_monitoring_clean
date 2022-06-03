@@ -31,8 +31,7 @@ pkgTest <- function(x)
 }
 
 # Make a vector of the packages you need
-neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel',
-                    'knitr', 'plotly') #tools for plot titles 
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
 
 # For every package in the vector, apply your pkgTest function
 for (package in neededPackages){pkgTest(package)}

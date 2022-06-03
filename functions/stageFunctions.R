@@ -1,5 +1,14 @@
 #Functions
 
+# Load or install as needed packages in a list
+
+pkgTest <- function(x)
+{
+   if (x %in% rownames(installed.packages()) == FALSE) {
+      install.packages(x, dependencies= TRUE)
+   }
+   library(x, character.only = TRUE)
+}
 #open_concat
 #1. find files based on location and site
 #2. concatonate all files in the folder

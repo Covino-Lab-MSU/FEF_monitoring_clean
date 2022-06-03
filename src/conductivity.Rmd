@@ -1,0 +1,76 @@
+---
+title: "Conductivity"
+author: "Lauren Kremer"
+date: "5/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+source('./functions/co2_DO_functions.R') #load helper functions
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+```{r}
+# open and concatonate CO2 data
+opn_conduct_ssfp <- function(interfiles, year, location) {
+  file_path <- paste(getwd(),interfiles, year, location,  sep='/')
+  path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 1, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    # for each item in path list, grab the device number
+    dat$year <- unlist(strsplit(x, "/"))[9]
+    dat$plottype <- unlist(strsplit(x, "/"))[11]
+    dat$depth <- unlist(strsplit(x, "/"))[12]
+    return(dat)
+  })
+  combined.data <- do.call(rbind, data)
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy_hm(datetime))%>%
+    arrange(datetime)%>%
+    distinct()%>%
+    return(combined.data)
+}
+```
+
+ 
+```{r}
+interfiles <- 'formatted_data/conductivity'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+year <- '2020'
+location <- 'ssfp'
+```
+
+```{r}
+
+cond_raw <- opn_conduct_ssfp(interfiles, year, location)
+
+cond_raw <- cond_raw %>% 
+  group_by(datetime, year, plottype, depth) %>% 
+  summarise(., mean_lowrange = mean(low_range_uScm), mean_fullrange = mean(full_range_uScm))
+```
+
+
+```{r}
+#quick plot of stage
+cond_check_plot <- ggplot(cond_raw , aes(datetime,mean_lowrange))+
+  geom_line() +
+  facet_wrap (~ plottype + depth)
+
+
+```
+
+```{r}
+#quick plot of stage
+cond_check_plot <- ggplot(cond_raw , aes(datetime,mean_fullrange))+
+  geom_line() +
+  facet_wrap (~ plottype + depth) +
+  ylim(0,50)
+```
+
+

@@ -1,0 +1,157 @@
+---
+title: "conductivity"
+author: "Lauren Kremer"
+date: "5/23/2022"
+output: html_document
+---
+
+```{r}
+source('./functions/co2_DO_functions.R') #load helper functions
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)
+```
+
+
+```{r}
+#Clean By Site
+
+# open and concatonate CO2 data
+opn_ssfp_cond <- function(interfiles, year, location) {
+  file_path <- paste(getwd(),interfiles, year,location, sep='/')
+  path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/') #recursive =T will also find files in nested directories
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 1, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    # for each item in path list, grab identifying labels from file path
+    dat$year <- unlist(strsplit(x, "/"))[9]
+    dat$plottype <- unlist(strsplit(x, "/"))[11]
+    dat$depth <- unlist(strsplit(x, "/"))[12]
+    return(dat)
+  })
+  combined.data <- do.call(rbind, data)
+  #combined.data <- combined.data %>%
+  #  mutate(datetime = lubridate::mdy_hm(datetime))%>%
+  #  arrange(datetime)%>%
+  #  distinct()%>%
+  #  return(combined.data)
+}
+```
+
+
+###Load data with opn_concat
+
+```{r}
+interfiles <- 'formatted_data/conductivity'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+year <- '2021'
+location <- 'ssfp'
+
+condu_raw <- opn_ssfp_cond(interfiles, year, location) #%>% #add an ID column to identify problem points 
+  #mutate(sample_year = year) #add a year column, this might be useful to something like a 
+  #facet wrap to compare years across plots
+
+# HOBO's range reporting will give two values for each time interval, find a mean of these to start:
+condu_raw <- condu_raw %>%
+  group_by(datetime, year, plottype, depth) %>%
+  summarise(mean_low = mean(low_range_uScm), mean_full = mean(full_range_uScm)) 
+```
+
+
+```{r}
+#quick plot of DO
+library(reshape2)
+melt_condu_raw <- melt(condu_raw ,  id.vars = c('datetime', 'year', 'plottype', 'depth'), variable.name =  'series')
+
+ICplot <- ggplot(melt_condu_raw, aes(datetime,value)) +
+  geom_line(aes(color = series)) +
+  facet_wrap(~ plottype + depth)
+
+ICplot
+```
+
+
+```{r}
+#The Q actually stands for Quality and provides a estimation of the quality of each oxygen measurement. This patented feature is unique to miniDOT.
+# other instrumentation has a similar plot to check battery voltage. 
+DyQuality()
+
+# this instrument also collects temperature data. look at DyTemp from stageFunctions.R if a comparison to air data is desired.
+```
+
+
+```{r}
+# can check points against a rolling average.  Here checking against previous 5 points using base R (sapply)
+DO_raw <- DO_raw %>%
+ mutate(DO_mgL_avg = c(NA, NA, NA, NA, sapply(5:nrow(.), function(i) mean(DO_mgL[(i-4):i]))))
+
+# plots actual, rolling average and ID along with any flags.
+DyRawDO()
+```
+
+###Create complete timeseries that includes any missing datetimes
+```{r}
+#check if collection interval is consistent in dataset. Code as written only handles one interval but can be modified if interval was changed. 
+checkTimeSteps()
+
+ts_interval<- DO_raw$datetime[2] - DO_raw$datetime[1]
+
+##round datetime to nearest whole interval
+DO_raw <- DO_raw%>%
+  mutate(datetime = round_date(datetime, as.period(ts_interval)))
+
+#create full timeseries 
+full_ts <- tibble(datetime=seq.POSIXt(DO_raw$datetime[1], DO_raw$datetime[length(DO_raw$datetime)], by=ts_interval))
+DO_raw <- full_join(full_ts,DO_raw)
+
+
+#identify missing timesteps:
+miss_ts <- filter(DO_raw, is.na(DO_mgL))%>%
+  pull(datetime)
+length(miss_ts)
+
+miss_ts
+```
+## FOR DH2022: There is a missing point every day at 8:09am every day and some air data before CO2 was dropped into stream ~9:00AM
+
+###Clean Raw DO
+
+```{r}
+bad_id <- c(0:20)
+maxgap = 6
+
+DOadj <- mutate(DO_raw, DO_mgL = na.approx(ifelse(ID %in% bad_id, NA, DO_mgL), maxgap=maxgap, na.rm=F))
+
+DOplot <- ggplot(DOadj, aes(datetime,DO_mgL)) +
+  geom_line()
+
+ggplotly(DOplot)
+```
+
+
+###save
+```{r}
+
+#DO_final <- DO_final %>%
+#     dplyr::select(date, time, BV_volts, temp_C, DO_mg, Q)
+#DO_final <- DO_adj%>%
+#      dplyr::select(datetime, time_sec, BV_volts, temp_C, DO_mgL,   Q)
+DO_final <- DO_raw %>%
+  dplyr::mutate(date = format(datetime, format = "%Y-%m-%d")) %>%
+  dplyr::mutate(time = format(datetime, format = "%H:%M:%S")) #saving time and date this way allows for re-upload 
+#and date recognition in R once cleaned. 
+
+DO_final <- DO_final %>%
+     dplyr::select(date, time, BV_volts, temp_C, DO_mg, Q)
+
+loc_site <- paste(year, location, site, sep='_')
+
+cleanfiles <- 'clean_data/minidots_DO'
+
+file_path <- paste(cleanfiles, year, location, site, sep='/')
+#saveRDS(stage_final, file=paste0('data/cln/wtr_lvl_',loc_site,'.csv'))
+write_csv(DO_final, file=paste0(file_path, '_clean.csv'))
+
+```

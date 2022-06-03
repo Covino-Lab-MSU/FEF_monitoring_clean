@@ -1,0 +1,268 @@
+---
+title: "Salt injection experiment - first look"
+author: "Lauren Kremer"
+date: "05/31/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## A review of salt injection data from 25 May to 31 May 2022.
+steps include:
+
+1) importing stage data and removing pre-installation data
+2) converting stage to water depth
+3) importing conductivity data
+4) visualizing conductivity and stage together for individual wells
+5) checking stage results against manual measurements.
+
+Requires HOBO water level logger and conductivity probe raw data and manual measurement spreadsheet
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+# Setup
+source('./functions/ssfp_pressure_stageFunctions.R') #load helper functions
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel', 'knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+### 1. Import and open HOBO water level logger data
+
+a. Open all HOBO level loggers in SSFP with opn_concat_psite function.
+This will open all .csvs within the location 'ssfp'. 
+The resulting dataframe should iclude all columns in .csv (renamed
+to be short and interpretable) and added
+columns for instrument serial number, cut or uncut classification, and a hillslope position.
+Lowest right (lookers right) is 1.1 and 3.1 on lookers left, middle well is 2.3, upper wells range from 1.5 to 3.5
+
+Check that data matches column names
+
+```{r, warning=FALSE, comment=FALSE,}
+interfiles <- 'formatted_data/stage_pressure'
+year <- '2022'
+location<- 'ssfp'
+
+pstage_raw <- opn_concat_psite(interfiles, year, location)
+
+pstage_raw$datetime <- round_date(pstage_raw$datetime, "10 mins")
+```
+
+
+```{r, echo = FALSE}
+#quick plot of pressure
+ssfp_pres <- ggplot(pstage_raw[pstage_raw$datetime > ymd_hms('2022-05-24 13:00:00', tz = 'MST'),], aes(datetime, pressure_kPa, color= position, linetype=site))+
+  geom_line() 
+
+ggplotly(ssfp_pres)
+```
+
+  b. Convert pressure to water level using data from the instrument in the  'atmospheric' transect position. 
+  Water level (h) is given by h=(P-Pr)/(rho * g) where P is the pressure measured by the sensor in the stream, Pr is the pressure measured by the reference sensor (atmospheric pressure), rho is the density of the water in the stream, and g is the acceleration due to gravity.
+
+The density of water is temperature dependent, however, our water temperatures have a small range when the sensor is submerged...
+```{r, echo = FALSE}
+pstage_raw %>%
+filter(position != "atmospheric") %>%
+  dplyr::summarise(mintemp = min(temperature_C, na.rm = TRUE), maxtemp = max(temperature_C, na.rm = TRUE))
+```
+
+Generate a dataframe with an added column for 'depth' based on an equation using the difference between the atmospheric pressure and the well pressure on for the same date and time. 
+```{r}
+pstage_depth <- inner_join(filter(pstage_raw, position =="atmospheric"), filter(pstage_raw,position != "atmospheric"), by= c("datetime")) %>%
+  mutate(depth_m = (pressure_kPa.y-pressure_kPa.x)/(0.999*9.98)) %>%
+  select(ID.y, datetime, pressure_kPa.x, pressure_kPa.y, depth_m, position.y, instrument_no.y, temperature_C.y, site.y)
+  
+```
+
+Plot does not reflect data prior to 1pm on May 24th (approximate sensor installation time)
+```{r, echo = FALSE}
+#quick plot of depth (just lower wells)
+depth_plot <-pstage_depth[!pstage_depth$position.y %in% c("2.5", "3.5") & pstage_depth$datetime > ymd_hms('2022-05-24 13:00:00', tz = 'MST'),]
+
+names(depth_plot) <- c('ID', 'datetime', 'pressure_kPa_atms', 'pressure_kPa', 'depth_m', 'position', 'instrument_no', 'temperature_C', 'site')
+
+depth_plot<- tidyr::unite(depth_plot,"site_posit",site,position,remove = F)   
+
+depth <- ggplot(depth_plot, aes(datetime, depth_m, color=site_posit))+
+  geom_line() +
+  scale_colour_manual(values = c( "brown1", "brown2", "brown3",  "chartreuse3","forestgreen","darkgreen", "gray37", "gray27"))
+
+ggplotly(depth)
+```
+
+
+### 2. Import and open HOBO conductivity data
+```{r}
+interfiles <- 'formatted_data/conductivity'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+year <- '2022'
+location <- 'ssfp'
+
+cond_raw <- opn_conduct_ssfp(interfiles, year, location)
+
+cond_raw$datetime <- round_date(cond_raw$datetime, "10 mins")
+```
+
+and plot for the same time period as well stage data
+```{r}
+cond_plot <- cond_raw[cond_raw$position != 'flumeshallow',]
+cond_plot <- cond_plot[cond_plot$datetime > ymd_hms('2022-05-24 13:00:00', tz = 'MST'),] %>%
+  tidyr::unite(.,"site_posit",site,position,remove = F)
+
+ssfp_cond <- ggplot(cond_plot, aes(datetime, full_range_us_cm, color= site_posit))+
+  geom_line() +
+  scale_colour_manual(values = c( "brown1", "brown2", "brown3",  "chartreuse3","forestgreen","darkgreen", "gray37", "gray27"))
+
+
+ggplotly(ssfp_cond)
+```
+
+
+### 3. Merge depth and conductivity to view sites individually
+```{r}
+
+cond_merg <- cond_plot[c("datetime", "position", "site", "full_range_us_cm")]
+
+m1 <- merge(cond_merg, depth_plot, by = c('datetime','site', 'position'))
+
+```
+
+
+
+```{r}
+
+mcut <- m1[m1$site == 'cut', ]
+
+scaleFactor <- max(m1$full_range_us_cm, na.rm = T) / max(m1$depth_m, na.rm = T)
+
+cwrapped <- ggplot(mcut, aes(x=datetime)) +
+  geom_line(aes(y=full_range_us_cm), method="loess", col="red") +
+  geom_point(aes(y=depth_m * scaleFactor), method="loess", col="blue") +
+  geom_hline(yintercept=10) +
+  scale_y_continuous(name="Conductivity (us/cm)", sec.axis=sec_axis(~./scaleFactor, name="Depth (m)")) +
+  theme(
+    axis.title.y.left=element_text(color="red"),
+    axis.text.y.left=element_text(color="red"),
+    axis.title.y.right=element_text(color="blue"),
+    axis.text.y.right=element_text(color="blue")) +
+  facet_wrap(~position) +
+  ggtitle('Regenerating/cut plot - low wells depth and conductivity')
+
+cwrapped
+```
+
+```{r}
+muncut <- m1[m1$site == 'uncut', ]
+
+scaleFactor <- max(m1$full_range_us_cm, na.rm = T) / max(m1$depth_m, na.rm = T)
+
+uwrapped <- ggplot(muncut, aes(x=datetime)) +
+  geom_line(aes(y=full_range_us_cm), method="loess",col="green") +
+  geom_point(aes(y=depth_m * scaleFactor), method="loess", col="blue") +
+  geom_hline(yintercept=10) +
+  scale_y_continuous(name="Conductivity (us/cm)", sec.axis=sec_axis(~./scaleFactor, name="Depth (m)")) +
+  theme(
+    axis.title.y.left=element_text(color="green"),
+    axis.text.y.left=element_text(color="green"),
+    axis.title.y.right=element_text(color="blue"),
+    axis.text.y.right=element_text(color="blue")
+  ) +
+  facet_wrap(~position) +
+  ggtitle('Old growth/uncut plot - low wells depth and conductivity')
+
+uwrapped
+```
+
+
+
+## Further steps for QA/QC including:
+1. check for missing timesteps
+2. check temperature data to flag any large fluctuations that cannot be explained
+3. check instrument stage against manual measurements
+
+```{r}
+
+#checkTimesteps(pstage_raw)
+```
+
+### Look for large data fluctuations
+
+a) Plot temperature for quick checks
+b) Plot raw data with flag if raw level changes by more than x%. 
+
+```{r, include=FALSE}
+
+threshold <-5
+
+splt.by <- c('position','site')
+pstage_list <-   split(pstage_raw, pstage_raw[,splt.by] )
+#pstage_list <- split(pstage_raw, pstage_raw$position)
+temp_list <- lapply(pstage_list, function(x) {
+  cbind(x, flag = ifelse(c(0,abs(diff(x$temperature_C)))/x$temperature_C > threshold, 48, 1)) })
+tempall <- do.call(rbind, temp_list) 
+tempall <-  tempall[c('temperature_C', 'ID', 'datetime', 'position')]
+
+tempall <-tempall %>%
+  tibble::rowid_to_column() %>%
+  spread(key = position, value = temperature_C)
+
+tsTemp <- xts(tempall, order.by = as.POSIXct(tempall$datetime))
+
+dygraph(tsTemp) %>% 
+            #adds time series launcher
+            dyRangeSelector() %>% 
+            #adds highlight/fade (controled by alpha) of series and formats circle.
+            dyHighlight(highlightCircleSize = 4, 
+                        highlightSeriesBackgroundAlpha = 0.2,
+                        hideOnMouseOut = TRUE)%>% 
+            dyAxis('y',label='Degree C',valueRange = c(-20,20 ))%>%
+            dyAxis('y2',label='ID',independentTicks=T)%>%
+            dySeries('ID',axis='y2')%>%
+            #Assigns legend to follow cursor, also can choose 'always' to always see it
+            dyLegend(show = "always")
+```
+
+
+###compare cleaned water level to manual measurements
+```{r}
+#plot difference between measured water depth and manual depth measurement
+#stageAdj.man<- left_join(manMeas_fil,stage_adj)%>%
+#      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+#ggplot(stageAdj.man, aes(datetime, diff))+
+#  geom_point(size=3)+
+# theme_minimal()
+```
+
+
+```{r}
+#plot water level time series with manual measurements as points
+#stage_check_plot<- stage_adj%>%
+#  left_join(manMeas_fil)%>%
+#  ggplot(aes(datetime,wtr_depth))+
+#    geom_line()+
+#    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+#ggplotly(stage_check_plot)
+```
+
+###save
+```{r}
+#stage_final <- stage_adj%>%
+ #     dplyr::select(location, site, datetime, wtr_depth,level_flag)
+#loc_site<- paste(location,site, sep='_')
+
+#interfiles <- './data/3_cleaned_stage_caprod'
+#file_path <- paste(interfiles,location,site, sep='/')
+#saveRDS(stage_final, file=paste0('data/cln/wtr_lvl_',loc_site,'.csv'))
+#write_csv(stage_final, file=paste0(file_path, '_clean.csv'))
+
+```
+
+
+
