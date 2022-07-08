@@ -205,6 +205,15 @@ ggplot(stage_clean_summ, aes(date, dmean_wtr_depth)) +
 ## Now that we've got code for one year and site, lets loop through years to generated a concatonated (2020 - 2022)  stage dataset for each outlet
 
 ```{r}
+name_function <- function(x) {
+  if ("adj_wtr_ht" %in% names(x)) {
+    dplyr::rename(x, stage = adj_wtr_ht) 
+  } else if ("wtr_depth" %in% names(x)){
+    dplyr::rename(x, stage = wtr_depth)
+  }
+}
+
+
 opn_allstg <- function(interfiles) {
   file_path <- paste(getwd(), interfiles, sep='/')
   path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
@@ -213,6 +222,7 @@ opn_allstg <- function(interfiles) {
         rowid_to_column(var='ID') %>%
         mutate(datetime = ymd(date) + hm(time))%>%
         arrange(datetime) %>%
+        name_function(.) %>%
         drop_na()
       dat$watershed <- unlist(strsplit(x, "/"))[10]
       dat$site <- unlist(strsplit(x, "/"))[11]
@@ -229,18 +239,21 @@ opn_allstg <- function(interfiles) {
 allyrs_stage_clean <- opn_allstg(interfiles)
 ```
 
+# find daily mean stage for all watersheds
 ```{r}
 allyrstage_summ <- allyrs_stage_clean %>%
   select (-c(ID, time, level_flag, datetime)) %>%
   mutate(date = lubridate::date(date)) %>%
   mutate(watershed = as.factor(watershed)) %>%
   group_by(date, watershed, site) %>%
-  summarize(dmean_wtr_depth = mean(wtr_depth))%>%
+  summarize(dmean_stage = mean(stage))%>%
   mutate(year = lubridate::year(date)) %>%
   as.data.frame()
-  
-  
-ggplot(subset(allyrstage_summ, watershed == 'dh'), aes(date, dmean_wtr_depth, group = year)) +
+```
+
+
+```{r}
+ggplot(subset(allyrstage_summ, watershed == 'fool' & site == 'fc1'), aes(date, dmean_stage, group = year)) +
   geom_line() +
   scale_x_date(date_breaks = "2 months", date_labels = "%b %Y") + 
   theme_classic() +
@@ -250,7 +263,7 @@ ggplot(subset(allyrstage_summ, watershed == 'dh'), aes(date, dmean_wtr_depth, gr
 ```
 
 ```{r}
-ggplot(subset(allyrstage_summ, watershed == 'lexen'), aes(date, dmean_wtr_depth, group = year)) +
+ggplot(subset(allyrstage_summ, watershed == 'lexen'), aes(date, dmean_stage, group = year)) +
   geom_line() +
   theme_classic() +
   scale_x_date(date_breaks = "2 months", date_labels = "%b %Y") + 
@@ -279,9 +292,10 @@ n_obs = sum(!is.na(dhplot$value))
 
 ggplot(data = subset(dhplot, !is.na(sampletype)), mapping = aes(x = date, fill = sampletype)) +
   geom_histogram(binwidth = 14) +
-  geom_line(dhplot, mapping = aes(x = date, y = (dmean_wtr_depth)/2, group = 1),inherit.aes = FALSE, color = 'blue') +
+  geom_line(dhplot, mapping = aes(x = date, y = (dmean_stage)/2, group = 1),inherit.aes = FALSE, color = 'blue') +
   scale_y_continuous("counts", breaks = round(ybreaks), labels = ybreaks, sec.axis = sec_axis(~.*2, breaks = round(seq(50, 310, by = 20),1), name = "Daily mean stage (mm)")) +
   theme_bw() + # the first is y_axis for histogram, sec.axis establishes second axis. The issue here is that the user has to establish a multiple that aligns the second axis with the data correctly. 
+  scale_fill_manual(values=c("#330033", "#990099", "#330099", "#6666FF", "#66CCFF")) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
   scale_x_date(date_breaks = "2 months", date_labels = "%d %b %Y") 
 
