@@ -1,5 +1,18 @@
 #Functions
 
+# open packages from a vector 
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel',
+                    'knitr', 'plotly', 'reshape') #tools for plot titles 
+
 #open_concat
 #1. find files based on location and site
 #2. concatonate all files in the folder
@@ -12,17 +25,21 @@
 
 opn_concat <- function(interfiles, year, site) {
    file_path <- paste(interfiles, year, site, sep='/')
-   path_list <- paste(file_path, list.files(file_path), sep= '/')
+   path_list <- paste(getwd(), file_path, list.files(file_path), sep= '/')
    data <- lapply(path_list, function(x) {
-      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      dat <- read.table(x, skip = 3, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
       # for each item in path list, grab the campbell number
-      dat$camb_no <- unlist(strsplit(x, "_"))[4]
+      names(dat) <- c('Datetime', 'ID', 'conductivity_uScm', 'SC_1', 'Ct_1', 
+                      'Ct_2', 'temp_C', 'cdom_ppb_qse', 'cdom_ave_mv', 'cdom_avg_ppb_qse',
+                      'cdom_stdev_ppb_qse', 'cdom_med_ppb_qse', 'turb_ntu', 'turb_ave_mv', 
+                      'turb_avg_ntu', 'turb_stdev_ntu', 'turb_median_ntu', 'cdom_mv', 'turb_mv')
+      dat$camb_no <- unlist(strsplit(x, "_"))[7]
       return(dat)
    })
-   drops <- c("timestamp")
+   drops <- c("Datetime")
    combined.data <- do.call(rbind, data)
    combined.data <- combined.data %>%
-      mutate(datetime = lubridate::mdy_hm(timestamp))%>%
+      mutate(datetime = lubridate::ymd_hms(Datetime, tz = "America/Denver"))%>%
       select(-one_of(drops))%>%
       distinct()%>%
       arrange(datetime)

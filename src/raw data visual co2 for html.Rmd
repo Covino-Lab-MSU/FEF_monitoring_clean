@@ -1,0 +1,184 @@
+---
+title: "Raw data vis. for .html"
+author: "Lauren Kremer"
+date: "6/17/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+
+```{r, include=FALSE}
+
+conv_function <- function(x) {
+  if ("Voltage..mV." %in% names(x)) {
+    Voltage..V. <- x$Voltage..mV./1000;
+    x <- cbind(x, Voltage..V.)
+  } else if ("Voltage..V." %in% names(x)) {
+    Voltage..mV. <- x$Voltage..V.*1000;
+    x <- cbind(x, Voltage..mV.)
+  }
+}
+
+
+convboth_function <- function(x) {
+  if ("Voltage..mV." %in% names(x)) {
+    co2_ppm_r <- (x$Voltage..mV.*10000)/160;
+    x <- cbind(x, co2_ppm_r)
+  } else if ("voltage_mv" %in% names(x)) {
+    co2_ppm_r <- (x$voltage_mv*10000)/160;
+    x <- cbind(x, co2_ppm_r)
+  } else if ("voltage_v" %in% names(x)) {
+    co2_ppm_r <- (x$voltage_v*10000)/2.5;
+    x <- cbind(x, co2_ppm_r)
+  } else if ("Voltage..V." %in% names(x)) {
+    co2_ppm_r <- (x$Voltage..V.*10000)/2.5;
+    x <- cbind(x, co2_ppm_r)
+  }
+}
+
+opn_concat_all_2022 <- function(interfiles, year) {
+  file_path <- paste(getwd(), interfiles, year, sep='/')
+  path_list <- paste(file_path, list.files(file_path, pattern = ".csv$", recursive = TRUE), sep = '/') 
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 6, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    dat$year <- unlist(strsplit(x, "/"))[9]
+    dat$shed <- unlist(strsplit(x, "/"))[10]
+    dat$site <- unlist(strsplit(x, "/"))[11]
+    # for each item in path list, grab the device number
+    #dat$logr_no <- unlist(strsplit(x, "_"))[9]
+    return(dat)
+  })
+  conv_data <- lapply(data, convboth_function) 
+  conv_data <- lapply(conv_data, function(x) {x <- x %>% select(c(year, shed, site, Date, Time, co2_ppm_r))})
+  #conv_data <-lapply(conv_data, conv_data[ , order(names(conv_data))])
+  combined.data <- do.call(rbind, conv_data)
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy(Date) + hms(Time))%>%
+    distinct()%>%
+    arrange(shed, site, datetime)%>%
+  return(combined.data)
+}
+```
+
+
+```{r, include=FALSE}
+opn_concat_2021 <- function(interfiles, year) {
+  file_path <- paste(getwd(), interfiles, year, sep='/')
+  path_list <- paste(file_path, list.files(file_path, pattern = ".csv$", recursive = TRUE), sep = '/') 
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    dat$year <- unlist(strsplit(x, "/"))[9]
+    dat$shed <- unlist(strsplit(x, "/"))[10]
+    dat$site <- unlist(strsplit(x, "/"))[11]
+    dat <- dat[ , order(names(dat))]
+    return(dat)
+  })
+  
+  conv_data <- lapply(data, convboth_function) 
+  conv_data <- lapply(conv_data, function(x) {x <- x %>% select(c(year, shed, site, date, time, co2_ppm_r))})
+  
+  combined.data <- do.call(rbind, conv_data)
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy(date) + hms(time))%>%
+    arrange(datetime)%>%
+    distinct()%>%
+    return(combined.data)
+}
+```
+
+
+```{r}
+interfiles <- 'formatted_data/stream_co2'
+year <- 2022
+
+co2_2022 <- opn_concat_all_2022(interfiles, year) 
+
+# select(., year, shed, site, datetime, co2_ppm_r)
+
+year <- 2021
+
+co2_2021 <- opn_concat_2021(interfiles, year) 
+
+#all_co2 <- rbind(co2_2021, co2_2022)
+```
+
+```{r}
+
+# Summarize and plot 2021
+
+summ_co2 <- co2_2021 %>%
+  mutate(day = date(datetime)) %>%
+  mutate(hour = hour(datetime)) %>%
+  group_by(day, hour, year, shed, site) %>%
+  summarise(mean_ppm = mean(co2_ppm_r))
+
+plot_subset <- summ_co2[summ_co2$shed == 'fc',]
+
+co2_check_plot <- ggplot(plot_subset, aes(day, mean_ppm, color = site)) +
+  geom_point() 
+
+co2_check_plot
+```
+
+
+```{r}
+
+# Summarize and plot 2021
+
+summ_co2 <- co2_2022 %>%
+  mutate(day = date(datetime)) %>%
+  mutate(hour = hour(datetime)) %>%
+  group_by(day, hour, year, shed, site) %>%
+  summarise(mean_ppm = mean(co2_ppm_r))
+
+plot_subset <- summ_co2[summ_co2$shed == 'lexen',]
+
+co2_check_plot <- ggplot(plot_subset, aes(day, mean_ppm, color = site)) +
+  geom_point() 
+
+co2_check_plot
+```
+
+```{r}
+
+summ_co2 <- all_co2 %>%
+  mutate(day = date(datetime)) %>%
+  mutate(hour = hour(datetime)) %>%
+  group_by(day, hour, year, plottype, depth) %>%
+  summarise(mean_low = mean(low_range_uScm), mean_full = mean(full_range_uScm)) 
+```
+
+```{r}
+plot_subset <- all_co2[all_co2$shed == 'dh',]
+
+co2_check_plot <- ggplot(plot_subset, aes(datetime, co2_ppm, color = site)) +
+  geom_point() 
++ facet_wrap (~year)
+
+ggplotly(co2_check_plot)
+```
+
+```{r}
+co2_check_plot
+
+```
+

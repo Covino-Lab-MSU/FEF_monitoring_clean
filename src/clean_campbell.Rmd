@@ -25,23 +25,12 @@ Cleaning and QA/QC steps include
 
 ```{r, include=FALSE}
 
-pkgTest <- function(x)
-{
-  if (x %in% rownames(installed.packages()) == FALSE) {
-    install.packages(x, dependencies= TRUE)
-  }
-  library(x, character.only = TRUE)
-}
-
-# Make a vector of the packages you need
-neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel',
-                    'knitr', 'plotly', 'reshape') #tools for plot titles 
+source('./functions/campbellFunctions.R') #load helper functions
 
 # For every package in the vector, apply your pkgTest function
 for (package in neededPackages){pkgTest(package)}
 
 
-source('./functions/campbellFunctions.R') #load helper functions
 ```
 
 #Clean By Site
@@ -54,22 +43,21 @@ the column formatted_dataetime in excel with:
  
 
 ```{r}
-interfiles <- './formatted_data/campbeldataloggers'
+interfiles <- 'formatted_data/campbeldataloggers'
 # possible years 2020, 2021, 2022
 year <- '2020'
 # only outlet sites have campbells: dh1, est_louis1, fc1, lexen1
 site<- 'dh1'
 
 # this function found in cambellFunctions.R, adds a column for data year
-campb_raw_2020 <- opn_concat(interfiles, year, site)
-
+campb_raw_2020<- opn_concat(interfiles, year, site)
 
 ```
 
 # Another option to open all years and concatonate
 # The same thing can be done for all sites, for loops can be nested or consider lapply()
 ```{r}
-years <- c('2020', '2021')
+years <- c('2020', '2021', '2022')
 campb_raw_allyr <- data.frame()
 
 for (year in years){
@@ -98,6 +86,20 @@ allvar <- ggplot(camp_raw_resh, aes(x = datetime, y = value, color = variable))+
 ggplotly(allvar)
 
 ```
+
+
+```{r}
+#quick plot of DOC for all years
+
+ggplot(data = campb_raw_allyr,
+       mapping = aes(x = doy, y = sc_us_us.cm,  color = year)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(facets = year ~ .) +
+  scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme_bw()
+```
+
 
 ```{r}
 #quick plot of conductivity for all years

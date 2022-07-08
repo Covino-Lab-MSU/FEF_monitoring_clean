@@ -1,0 +1,65 @@
+---
+title: "review_2020_data"
+author: "Lauren Kremer"
+date: "6/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, repos = "http://cran.us.r-project.org", dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'ggplot2', 'lubridate', 'ggpmisc', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+
+
+lm_eqn <- function(df){
+    m <- lm(y ~ x, df);
+    eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+         list(a = format(unname(coef(m)[1]), digits = 2),
+              b = format(unname(coef(m)[2]), digits = 2),
+             r2 = format(summary(m)$r.squared, digits = 3)))
+    as.character(as.expression(eq));
+}
+```
+
+```{r}
+
+file_path <- "/Users/laurenkremer/Downloads/2020_FEF_WaterChemistry_Final.csv"
+doc_2020 <- read.table(file_path, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+
+doc_2020 <- doc_2020 %>%
+  select(ID.NO.,STATION, LOCATION, TYPE, DATE, temp_C, Head_ft, DOC_mg_l) %>%
+  filter(TYPE == 'STREAM') #|TYPE == 'WELL'|TYPE == 'SYNOPTIC'
+```
+
+```{r, warning=FALSE}
+ggplot(doc_2020, aes(DATE, DOC_mg_l, color = LOCATION)) +
+  geom_point() +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+```
+
+```{r, warning=FALSE}
+formula1 <- y ~ x
+
+ggplot(data = doc_2020, aes(x = temp_C, y = DOC_mg_l, color = LOCATION)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, formula = formula1) +
+  stat_poly_eq(aes(label = paste(..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = "top",
+               formula = formula1, parse = TRUE, size = 5) +
+  theme_classic()
+```
+

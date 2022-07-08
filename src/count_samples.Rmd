@@ -24,7 +24,7 @@ neededPackages <- c('ggplot', 'tidyverse', 'lubridate', 'plotly') #tools for plo
 
 
 ```{r cars}
-file_path <- "/Users/laurenkremer/Dropbox/Fraser Experimental Forest/2021/NSF/data/sample_log_for_r.csv"
+file_path <- "/Users/laurenkremer/Dropbox/Fraser Experimental Forest/Sample_inventory_chemistry_logs/NSFSampleLog_forR.csv"
 
 dat <- read.table(file_path, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
 ```
@@ -32,28 +32,43 @@ dat <- read.table(file_path, skip = 0, header = TRUE, sep = ",", row.names = NUL
 
 ```{r pressure, echo=FALSE}
 
-dat$catchment <- as.factor(dat$catchment)
-dat$site.type <- as.factor(dat$site.type) 
-dat$well.distance.from.stream <- as.factor(dat$well.distance.from.stream)
-dat$Location <- as.factor(dat$Location)
+dat$Watershed <- as.factor(dat$Watershed)
+dat$Location <- as.factor(dat$Location) 
 
-dat$Date <- lubridate::mdy(dat$Date)
-
-dat <- subset(dat, dat$FTICR.MS != "NA")
+dat <- dat %>%
+  mutate(datetime = lubridate::mdy(Date) + hm(Time)) %>%
+  mutate(date = lubridate::mdy(Date)) %>%
+  filter(Type != 'monitoring')
 ```
 
 
 ```{r}
-dat_dh <- subset(dat, dat$catchment == 'Deadhorse')
-dat_dh <- dat_dh[, c('Location', 'FTICR.MS', 'Date', 'site')]
-ggp <- ggplot(dat_dh, aes(Date, fill = Location)) +  # Create ggplot2 histogram with default colors
+dat_dh <- subset(dat, dat$Watershed == 'dh' | dat$Watershed == 'dhn' | dat$Watershed == 'dhs')
+
+dat_fc <- subset(dat, dat$Watershed == 'fc')
+
+dat_lexen <- subset(dat, dat$Watershed == 'lexen')
+
+dat_ssfp <- subset(dat, dat$Watershed == 'ssfp')
+
+ggp <- ggplot(dat, aes(date, fill = Sample)) +
+# Create ggplot2 histogram with default colors
   geom_histogram() +
-  facet_wrap(~site, nrow = 3) + #, scales = "free_x", space = "free_x") +
-  theme(axis.text.x = element_text(angle = 90))
-
-#rgrid <- plot_grid(R.mean, R.max, R.range + theme(legend.position="none"),
-#                 nrow = 3, rel_widths = c(1, 1), rel_heights = c(1/3.5, 1/3.9, 1/2.6))
-
+  scale_x_date(date_breaks = "2 months", date_labels = "%b %y") +
+  facet_wrap(~Type, nrow = 3) +
+  ylab('Sample count') +
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme(
+  # Hide panel borders and remove grid lines
+  #panel.border = element_blank(),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  # Change axis line
+  axis.line = element_line(colour = "black")
+  ) +
+  guides(fill=guide_legend(title="Sample source"))
+    
 ggp
 ```
 

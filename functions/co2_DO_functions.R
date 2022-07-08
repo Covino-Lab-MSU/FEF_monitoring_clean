@@ -5,6 +5,7 @@
   # removes unwanted columns
   # removes repeated rows from overlapping datafiles
 
+
 # package loading function
 pkgTest <- function(x)
 {
@@ -15,13 +16,14 @@ pkgTest <- function(x)
 }
 
 
+# open and concatonate CO2 data FOR 2021...We formatted these .csvs more extensively before writing a new 
+# function for 2022 that allows for much of the processing to happen in R. 
 
-# open and concatonate CO2 data
-opn_concat <- function(interfiles, year, location, site) {
+opn_concat_2021 <- function(interfiles, year, location, site) {
   file_path <- paste(getwd(),interfiles,year, location,site, sep='/')
   path_list <- paste(file_path, list.files(file_path), sep= '/')
   data <- lapply(path_list, function(x) {
-    dat <- read.table(x, skip = 6, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
     # for each item in path list, grab the device number
     #dat$logr_no <- unlist(strsplit(x, "_"))[9]
     return(dat)
@@ -32,6 +34,29 @@ opn_concat <- function(interfiles, year, location, site) {
     arrange(datetime)%>%
     distinct()%>%
     return(combined.data)
+}
+
+
+# open and concatonate CO2 data FOR 2022...This function will eliminate additional heading rows, convert
+# mV to V, combine separate date and time columns to one datetime variable to match column format of 
+# 2021 data with much less formatting work. 
+
+opn_concat_site_2022 <- function(interfiles, year, location, site) {
+  file_path <- paste(getwd(),interfiles,year, location,site, sep='/')
+  path_list <- paste(file_path, list.files(file_path), sep= '/')
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 6, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    dat$year <- unlist(strsplit(x, "/"))[9]
+    dat$shed <- unlist(strsplit(x, "/"))[10]
+    dat$site <-unlist(strsplit(unlist(strsplit(x, "/"))[11], "_"))[1]
+    return(dat)
+  })
+  combined.data <- do.call(rbind, data)
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy(Date) + hms(Time))%>%
+    arrange(datetime)%>%
+    distinct()%>%
+  return(combined.data)
 }
 
 ## opens all .txt files of o2 raw data 
@@ -59,6 +84,7 @@ opn_txt_concat <- function(interfiles, year, location, site) {
   #arrange(datetime)%>%
   return(combined.data)
 }
+
 
 #checks TimeSteps
 checkTimeSteps<- function(df=co2_raw$datetime){

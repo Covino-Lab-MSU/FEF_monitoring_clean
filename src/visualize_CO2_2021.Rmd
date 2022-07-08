@@ -1,0 +1,136 @@
+---
+title: "visualize_2021_CO2"
+author: "Lauren Kremer"
+date: "6/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#source('./functions/co2_DO_functions.R') #load helper functions
+# package loading function
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+## Functions:
+
+```{r, include = FALSE}
+# open and concatonate CO2 data FOR 2021...We formatted these .csvs more extensively before writing a new function for 2022 that allows for much of the processing to happen in R. 
+
+opn_conct_2021 <- function(interfiles, year) {
+  file_path <- paste(getwd(),interfiles,year, sep='/')
+  path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
+  data <- lapply(path_list, function(x) {
+    dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+    dat$year <- unlist(strsplit(x, "/"))[9]
+    dat$shed <- unlist(strsplit(x, "/"))[10]
+    dat$location <- unlist(strsplit(x, "/"))[11]
+    # for each item in path list, grab the device number
+    #dat$logr_no <- unlist(strsplit(x, "_"))[9]
+    return(dat)
+  })
+  combined.data <- do.call(rbind, data)
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy(date) + hms(time))%>%
+    arrange(datetime)%>%
+    distinct()%>%
+    return(combined.data)
+}
+```
+
+```{r}
+
+#opts_knit$set(root.dir = "/Users/laurenkremer/Dropbox/Fraser Experimental Forest/clean_FEF_monitoring_data")
+
+interfiles <- 'formatted_data/stream_co2'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+year <- '2021'
+
+co2_2021 <- opn_conct_2021(interfiles, year) %>%
+  select(datetime, year, shed, location, co2_ppm) 
+
+co2_2021$shed <- as.factor(co2_2021$shed)
+co2_2021$location <- as.factor(co2_2021$location)
+
+co2_2021$cut <- NULL
+co2_2021$cut<-ifelse(co2_2021$shed== 'dh'|co2_2021$shed == 'fc','cut','uncut')
+```
+
+```{r}
+plot_subset <- co2_2021[co2_2021$shed == 'fc',]
+
+ggplot(plot_subset, aes(datetime, co2_ppm, color = location)) + 
+   geom_line() + 
+   xlab('Date') +
+   ylab('CO2 (ppm)') + 
+   theme_classic() +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#ggplotly(co2plot)
+```
+
+
+```{r}
+plot_subset <- co2_2021[co2_2021$shed == 'lexen',]
+
+ggplot(plot_subset, aes(datetime, co2_ppm, color = location)) + 
+   geom_line() + 
+   xlab('Date') +
+   ylab('CO2 (ppm)') + 
+   theme_classic() +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#ggplotly(co2plot)
+```
+
+
+```{r}
+plot_subset <- co2_2021[co2_2021$shed == 'dh',]
+
+ggplot(plot_subset, aes(datetime, co2_ppm, color = location)) + 
+   geom_line() + 
+   xlab('Date') +
+   ylab('CO2 (ppm)') + 
+   theme_classic() +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#ggplotly(co2plot)
+```
+
+```{r}
+plot_subset <- subset(co2_2021, datetime >= '2021-08-15 20:00:00')
+
+ggplot(plot_subset, aes(datetime, co2_ppm, color = cut)) + 
+   geom_point() + 
+   xlab('Date') +
+   ylab('CO2 (ppm)') + 
+   theme_classic() +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+```{r}
+plot_subset <- subset(co2_2021, datetime >= '2021-08-15 20:00:00')
+
+co2plot <- ggplot(plot_subset, aes(datetime, co2_ppm, color = cut)) + 
+   geom_point() + 
+   xlab('Date') +
+   ylab('CO2 (ppm)') + 
+   theme_classic() +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplotly(co2plot)
+```

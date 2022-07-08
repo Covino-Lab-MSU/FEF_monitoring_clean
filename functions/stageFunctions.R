@@ -72,9 +72,9 @@ DyTemp<- function(threshold='.2',airtemp='y'){
 #Dygraph for raw stage - option to flag deviations by slope change 
 DyRawStage<- function(df=stage_raw_prep,threshold = 0.2, flag='TRUE',max=1200){
       if (flag){
-            stage_df<- mutate(df, flag = ifelse(c(0,abs(diff(wtr_ht_avg)))/wtr_ht_avg > threshold, 1000,100))
+            stage_df <- mutate(df, flag = ifelse(c(0,abs(diff(wtr_ht_avg)))/wtr_ht_avg > threshold, 1000,100))
             tsStage<- xts(dplyr::select(stage_df, datetime,ID,flag,wtr_ht_pt,wtr_ht_avg), order.by=stage_df$datetime)
-            dygraph(tsStage) %>% 
+            dygraph(tsStage, main = site) %>% 
                   dyAxis('y',label='mm',valueRange = c(-100, max))%>%
                   dyAxis('y2',label='ID',independentTicks=T)%>%
                   dySeries('ID',axis='y2')%>%

@@ -1,0 +1,296 @@
+---
+title: "mid-season planning"
+author: "Lauren Kremer"
+date: '2022-06-30'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('ggplot2', 'tidyverse', 'dplyr', 'lubridate', 'plotly', 'ggthemes', 'reshape') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+#### Review sample frequency 
+1. Separating SSFP, outlet monitoring and synoptic monitoring samples by site.
+```{r import, include=FALSE}
+file_path <- "/Users/laurenkremer/Dropbox/Fraser Experimental Forest/Sample_inventory_chemistry_logs/NSFSampleLog_forR.csv"
+
+dat <- read.table(file_path, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+```
+
+```{r format, include=FALSE}
+dat <- dat %>%
+  mutate(watershed = as.factor(watershed)) %>%
+  mutate(site = as.factor(location))
+
+dat <- dat %>%
+  mutate(datetime = lubridate::mdy(date) + hm(time)) %>%
+  mutate(date = lubridate::mdy(date)) %>%
+  mutate(year = lubridate::year(date)) %>%
+  filter(type != 'monitoring')
+```
+
+```{r plot1, echo = FALSE, message=FALSE, fig.show ='hide'}
+
+ggplot(dat, aes(date, fill = sample)) +
+# Create ggplot2 histogram with default colors
+  geom_histogram() +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b %y") +
+  facet_wrap(~type, nrow = 3) +
+  ylab('Sample count') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme(
+  # Hide panel borders and remove grid lines
+  #panel.border = element_blank(),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  # Change axis line
+  axis.line = element_line(colour = "black")
+  ) +
+  scale_fill_manual(values=c("#66FFFF", "#CCFF66", "#000066", "#FFCC66")) +
+  guides(fill=guide_legend(title="Sample source"))
+    
+```
+
+```{r plot2, echo = FALSE, message=FALSE}
+
+summdat <- dat %>%
+  filter(watershed != 'ssfp')
+
+# New facet label names for watershed variable
+watershed.labs <- c("Deadhorse", "E.St.Louis", "Fool Creek", "Lexen")
+names(watershed.labs) <- c("dh", "E. St. Louis", "fc", 'lexen')
+
+ggplot(summdat, aes(date, fill = sample)) +
+# Create ggplot2 histogram with default colors
+  geom_histogram(binwidth = 14) +
+  scale_x_date(date_breaks = "3 months", date_labels = "%d %b %y") +
+  facet_grid(watershed ~ type, labeller = labeller(watershed = watershed.labs)) +
+  ylab('Sample count') +
+  theme_bw() +
+  scale_fill_manual(values=c("#000066", "#FFCC66")) +
+  theme(axis.text.x = element_text(angle = 90),
+        strip.text.y = element_text(size = 8))
+  
+```
+
+2. Subset SSFP, outlet monitoring and synoptic monitoring samples, and plot by sample type (e.g., DOC, IC, respiration/BOD, FTICR-MS, fluorescence/EEM)
+
+#### Watersheds
+```{r plot3, echo = FALSE, message=FALSE}
+
+summdat <- dat %>%
+  select('watershed', 'sample', 'type', 'FTICR.MS', 'Fluorescence', 'Respiration', 'DOC', 'IC', 'date') %>%
+  gather(sampletype, value, -c(watershed, sample, type, date)) %>%
+  group_by(date, watershed, sample, type, sampletype) %>%
+  as.data.frame()
+
+#convert character columns into factor columns
+cols <- c('sample', 'type', 'sampletype')
+summdat[cols] <- lapply(summdat[cols], as.factor)
+
+plotdat <- summdat %>%
+  filter(watershed != 'ssfp')
+
+# New facet label names for watershed variable
+watershed.labs <- c("Deadhorse", "E.St.Louis", "Fool Creek", "Lexen")
+names(watershed.labs) <- c("dh", "E. St. Louis", "fc", 'lexen')
+
+ggplot(as.data.frame(plotdat), aes(x = date, fill = sampletype)) +
+# Create ggplot2 histogram with default colors
+  geom_histogram() +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b %y") +
+  facet_grid(watershed ~ sample, labeller = labeller(watershed = watershed.labs)) +
+  ylab('Sample count') +
+  theme_bw()  +
+  scale_fill_manual(values=c("#330033", "#990099", "#330099", "#6666FF", "#66CCFF")) +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.text.y = element_text(angle = 0),
+        strip.text.y = element_text(size = 8))
+  
+```
+
+#### Subsurface Flowplots
+```{r plot4, echo = FALSE, message=FALSE}
+plotdat <- summdat %>%
+  filter(watershed == 'ssfp')
+
+ggplot(as.data.frame(plotdat), aes(x = date, fill = sampletype)) +
+# Create ggplot2 histogram with default colors
+  geom_histogram(binwidth = 14) +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b %y") +
+  facet_grid(~ sample) +
+  ylab('Sample count') +
+  theme_bw()  +
+  scale_fill_manual(values=c("#330033", "#990099", "#330099", "#6666FF", "#66CCFF")) +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.text.y = element_text(angle = 0),
+        strip.text.y = element_text(size = 8))
+
+```
+
+
+
+
+
+
+## NEXT STEP IS TO ADD STAGE
+## IMPORT CLEAN STAGE DATA FOR EACH OUTLET - CONCATONATED BY YEAR
+```{r}
+
+opn_clean <- function(interfiles, year, watershed, site) {
+   file_path <-  paste(getwd(), '/', interfiles, '/', year, '/', watershed, '/', site, '/', site, '_clean.csv', sep = '')
+   dat <- read.table(file_path, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) %>%
+    rowid_to_column(var='ID') %>%
+    mutate(datetime = ymd(date) + hm(time))%>%
+    arrange(datetime) %>%
+    drop_na()
+    return(dat)
+   }
+```
+
+```{r}
+interfiles <- 'clean_data/stage_caprod'
+# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
+year <- 2020
+watershed <- 'dh'
+site <- paste(watershed, '1', sep = '')
+
+stage_clean <- opn_clean(interfiles, year, watershed, site) 
+
+```
+
+
+```{r}
+#quick plot of stage
+
+ggplot(stage_clean, aes(datetime, wtr_depth))+
+  geom_line()
+
+```
+
+# merge clean stage data with sample data
+  1. summarize stage data by day
+  
+```{r}
+stage_clean_summ <- stage_clean %>%
+  group_by(date) %>%
+  summarize(dmean_wtr_depth = mean(wtr_depth)) %>%
+  mutate(date = lubridate::date(date))
+
+ggplot(stage_clean_summ, aes(date, dmean_wtr_depth)) +
+  geom_line() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('Water level (mm)') +
+  scale_y_continuous(breaks = round(seq(170, 310, by = 10),1)) +
+  xlab('Date')
+  
+```
+
+## Now that we've got code for one year and site, lets loop through years to generated a concatonated (2020 - 2022)  stage dataset for each outlet
+
+```{r}
+opn_allstg <- function(interfiles) {
+  file_path <- paste(getwd(), interfiles, sep='/')
+  path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
+  data <- lapply(path_list, function(x) {
+      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) %>%
+        rowid_to_column(var='ID') %>%
+        mutate(datetime = ymd(date) + hm(time))%>%
+        arrange(datetime) %>%
+        drop_na()
+      dat$watershed <- unlist(strsplit(x, "/"))[10]
+      dat$site <- unlist(strsplit(x, "/"))[11]
+      return(dat)
+  })
+  combined_data <- do.call(rbind, data)%>%
+  arrange(datetime)
+  return(combined_data)
+}
+```
+
+
+```{r}
+allyrs_stage_clean <- opn_allstg(interfiles)
+```
+
+```{r}
+allyrstage_summ <- allyrs_stage_clean %>%
+  select (-c(ID, time, level_flag, datetime)) %>%
+  mutate(date = lubridate::date(date)) %>%
+  mutate(watershed = as.factor(watershed)) %>%
+  group_by(date, watershed, site) %>%
+  summarize(dmean_wtr_depth = mean(wtr_depth))%>%
+  mutate(year = lubridate::year(date)) %>%
+  as.data.frame()
+  
+  
+ggplot(subset(allyrstage_summ, watershed == 'dh'), aes(date, dmean_wtr_depth, group = year)) +
+  geom_line() +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b %Y") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('Water level (mm)') +
+  xlab('Date') 
+```
+
+```{r}
+ggplot(subset(allyrstage_summ, watershed == 'lexen'), aes(date, dmean_wtr_depth, group = year)) +
+  geom_line() +
+  theme_classic() +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b %Y") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('Water level (mm)') +
+  xlab('Date') 
+
+```
+
+
+# merge sample counts with daily water level
+```{r}
+
+summdat_nossfp <- summdat %>%
+  filter(watershed != 'ssfp')
+
+stageclean_w_sampcount <- merge(allyrstage_summ, summdat_nossfp, by = c("date","watershed"), all=T)
+```
+
+
+
+```{r}
+dhplot <- subset(stageclean_w_sampcount, watershed == 'dh')
+ybreaks = seq(0, 150,25)
+n_obs = sum(!is.na(dhplot$value))
+
+ggplot(data = subset(dhplot, !is.na(sampletype)), mapping = aes(x = date, fill = sampletype)) +
+  geom_histogram(binwidth = 14) +
+  geom_line(dhplot, mapping = aes(x = date, y = (dmean_wtr_depth)/2, group = 1),inherit.aes = FALSE, color = 'blue') +
+  scale_y_continuous("counts", breaks = round(ybreaks), labels = ybreaks, sec.axis = sec_axis(~.*2, breaks = round(seq(50, 310, by = 20),1), name = "Daily mean stage (mm)")) +
+  theme_bw() + # the first is y_axis for histogram, sec.axis establishes second axis. The issue here is that the user has to establish a multiple that aligns the second axis with the data correctly. 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_x_date(date_breaks = "2 months", date_labels = "%d %b %Y") 
+
+  
+```
+
+
+
+
+
+
+

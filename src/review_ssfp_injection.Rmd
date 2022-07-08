@@ -110,13 +110,13 @@ cond_raw$datetime <- round_date(cond_raw$datetime, "10 mins")
 
 and plot for the same time period as well stage data
 ```{r}
-cond_plot <- cond_raw[cond_raw$position != 'flumeshallow',]
+cond_plot <- cond_raw[cond_raw$position == 'flumedeep',]
 cond_plot <- cond_plot[cond_plot$datetime > ymd_hms('2022-05-24 13:00:00', tz = 'MST'),] %>%
   tidyr::unite(.,"site_posit",site,position,remove = F)
 
 ssfp_cond <- ggplot(cond_plot, aes(datetime, full_range_us_cm, color= site_posit))+
-  geom_line() +
-  scale_colour_manual(values = c( "brown1", "brown2", "brown3",  "chartreuse3","forestgreen","darkgreen", "gray37", "gray27"))
+  geom_point() +
+  scale_colour_manual(values = c( "brown1", "blue", "brown3",  "chartreuse3","forestgreen","darkgreen", "gray37", "gray27"))
 
 
 ggplotly(ssfp_cond)
