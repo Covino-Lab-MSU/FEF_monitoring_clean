@@ -55,7 +55,7 @@ DyTemp<- function(threshold='.2',airtemp='y'){
             tsTemp<- xts(dplyr::select(tempRaw, datetime,ID,water_temp), order.by=tempRaw$datetime)
       }
       #launch dygraph using xts object
-      dygraph(tsTemp) %>% 
+      dygraph(tsTemp, main = site) %>% 
             #adds time series launcher
             dyRangeSelector() %>% 
             #adds highlight/fade (controled by alpha) of series and formats circle.
@@ -101,7 +101,7 @@ DyRawStage<- function(df=stage_raw_prep,threshold = 0.2, flag='TRUE',max=1200){
 
 DyBatt<- function(){
       tsBatt<- xts(dplyr::select(stage_raw, datetime,batt_pw), order.by=stage_raw$datetime)
-      dygraph(tsBatt) %>% 
+      dygraph(tsBatt, main = site) %>% 
             dyRangeSelector()%>%
             dyHighlight(highlightCircleSize = 4, 
                         highlightSeriesBackgroundAlpha = 0.2,
@@ -110,7 +110,7 @@ DyBatt<- function(){
             dyLegend(show = "always")
 }
 
-AdjStage <- function(df=stage_raw,maxgap=8){
+AdjStage <- function(df=stage_raw, maxgap=8){
       #create Stage Adj dataframe and adj wt ht column
       stageAdj<-df%>%
             mutate(adj_wtr_ht = wtr_ht_avg)
@@ -136,7 +136,7 @@ AdjStage <- function(df=stage_raw,maxgap=8){
 
 dyStageAdj<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime,wtr_ht_avg,adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(-150, max))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
