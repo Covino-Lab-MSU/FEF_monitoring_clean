@@ -33,22 +33,44 @@ for (package in neededPackages){pkgTest(package)}
 ```
 
 
-```{r, include=FALSE}
-opn_concat_site_2022 <- function(interfiles, year, location, site) {
-  file_path <- paste(getwd(),interfiles,year, location,site, sep='/')
-  path_list <- paste(file_path, list.files(file_path), sep= '/')
-  data <- lapply(path_list, function(x) {
-    dat <- read.table(x, skip = 6, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
-    # for each item in path list, grab the device number
-    #dat$logr_no <- unlist(strsplit(x, "_"))[9]
-    return(dat)
-  })
-  combined.data <- do.call(rbind, data)
-  combined.data <- combined.data %>%
-    mutate(datetime = lubridate::mdy(Date) + hms(Time))%>%
-    arrange(datetime)%>%
-    distinct()%>%
-  return(combined.data)
+#### Additional functions
+Functions that open and concatenate formatted data files
+
+```{r functions, include=FALSE}
+
+# A universal function to open all caprod data for a 'site' to a list of dataframes
+opn_as_dflist_22 <- function(interfiles, year, watershed, site) {
+   file_path <- paste(getwd(), interfiles, year, watershed, site, sep='/')
+   path_list <- paste(file_path, list.files(file_path), sep= '/')
+   data <- lapply(path_list, function(x) {
+      dat <- read.table(x, skip = 6, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      # for each item in path list, grab the cap_rod number
+      if(colnames(dat[3]) == 'Voltage..mV.') {
+      dat$co2_ppm = ((dat$Voltage..mV.*10000)/160)
+      dat$Voltage_V = dat$Voltage..mV./1000
+      names(dat)[names(dat) == 'Voltage..mV.'] <- 'Voltage_mV'
+    } else {
+      dat$co2_ppm = dat$Voltage..V. *3333.33
+      dat$Voltage_mV = dat$Voltage..V.*1000
+      names(dat)[names(dat) == 'Voltage..V.'] <- 'Voltage_V'
+}
+      return(dat)
+   })
+   
+}
+
+# Each year of data has been formatted a bit differently. Rather than reformatting each spreadsheet, 
+# a function specific to each year should concatenate the list made by 'opn_as_dflist' 
+concat_2022 <- function(data) {
+   combined.data <- do.call(rbind, data)
+   combined.data <- combined.data %>%
+     mutate(datetime = lubridate::mdy(Date) + hms(Time)) %>%
+     mutate(date = lubridate::mdy(Date)) %>%
+     arrange(datetime) %>%
+     distinct() %>%
+     #dplyr::rename(., wtr_ht_pt = wtrhgt__2, wtr_ht_avg = wtrhgt__3, water_temp = wtemp_a_1) %>%               
+     rowid_to_column(var='ID')
+   return(combined.data)
 }
 ```
  
@@ -56,35 +78,13 @@ opn_concat_site_2022 <- function(interfiles, year, location, site) {
 interfiles <- 'formatted_data/stream_co2'
 # possible locations: 'dh', 'est_louis', 'fool', 'lexen'
 year <- '2022'
-location<- 'fc'
+watershed <- 'dh'
+site<- 'dh1'
 
-site<- 'fc1'
+dflist <- opn_as_dflist_22(interfiles, year, location, site)
+
+co2_raw <- concat_2021(opn_as_dflist(interfiles, year, location, site))
 ```
-
-```{r,include = FALSE}
-
-co2_raw <- opn_concat_site_2022(interfiles, year, location, site)
-
-## This will convert a mV column to voltage.  For now, the statement will not delete the mV column, rather generate a mV column if V are provided. 
-
-if(colnames(co2_raw[3]) == 'Voltage..mV.') {
-  co2_raw$Voltage_V = Voltage..mV./1000;
-  names(co2_raw)[names(co2_raw) == 'Voltage..mV.'] <- 'Voltage_mV'
-} else 
-  co2_raw$Voltage_mV = co2_raw$Voltage..V.*1000
-  names(co2_raw)[names(co2_raw) == 'Voltage..V.'] <- 'Voltage_V'
-
-```
-
-
-```{r,include = FALSE}
-#quick plot of voltage
-co2_check_plot <- ggplot(co2_raw, aes(datetime,Voltage_V))+
-  geom_line()
-
-ggplotly(co2_check_plot)
-```
-
 Convert voltage to CO2:
 
 CO2ppm= (XF−XZ)*V/Vmax +XZ 
@@ -101,159 +101,108 @@ Voltage recorders have different ranges, some with +-3V DC, others with +-160mV 
 3V multiplier = high voltage ppm (10,000) / voltage range (3V) = 3333.33 ppm/V 
 
 *******MORE ON THIS LATER, FOR NOW (15 JUNE 2022), USING A CONVERSION OF MV TO V IF NEEDED, AND CALCULATING THE MULTIPLIER BASED ON A 3V DATALOGGER. 160MV MULTIPLIER AS ABOVE GIVES PPMS ~5000.
+
+
 ```{r,include = FALSE}
 
-co2_raw$co2_ppm <- (co2_raw$Voltage_V/3)*10000
+## This will convert a mV column to voltage and mV or V to CO2ppm.   For now, the statement will not delete the mV column, rather generate a mV column if V are provided. 
+
+if(colnames(co2_raw[4]) == 'Voltage..mV.') {
+  co2_raw$co2_ppm = ((co2_raw$Voltage..mV.*10000)/160)
+  co2_raw$Voltage_V = co2_raw$Voltage..mV./1000
+  names(co2_raw)[names(co2_raw) == 'Voltage..mV.'] <- 'Voltage_mV'
+} else {
+  co2_raw$co2_ppm = co2_raw$Voltage..V. *3333.33
+  co2_raw$Voltage_mV = co2_raw$Voltage..V.*1000
+  names(co2_raw)[names(co2_raw) == 'Voltage..V.'] <- 'Voltage_V'
+}
+```
 
 
+```{r,include = FALSE}
+#quick plot of voltage
 co2_check_plot <- ggplot(co2_raw, aes(datetime,co2_ppm))+
   geom_line()
 
 ggplotly(co2_check_plot)
 ```
 
-To review raw data across watersheds and years, lets pull in all data
-and merge them into one dataset so we can plot with subsets and 'facet'
-We can pretty easily do this with 'recursive = True' in our list.files function
 
-Because the .csvs were formatted differently between years, the function for each year
-will be slightly different (see functions.R)
-```{r, include = FALSE}
+```{r}
+co2_raw_summ <- co2_raw %>%
+  group_by(Date) %>%
+  summarize(dmean_co2_ppm = mean(co2_ppm)) %>%
+  mutate(date = lubridate::mdy(Date)) %>%
+  select(., dmean_co2_ppm, date)
 
-conv_function <- function(x) {
-  if ("Voltage..mV." %in% names(x)) {
-    Voltage..V. <- x$Voltage..mV./1000;
-    x <- cbind(x, Voltage..V.)
-  } else if ("Voltage..V." %in% names(x)) {
-    Voltage..mV. <- x$Voltage..V.*1000;
-    x <- cbind(x, Voltage..mV.)
+ggplot(co2_raw_summ, aes(date, dmean_co2_ppm)) +
+  geom_line() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('CO2 (ppm)') +
+  scale_y_continuous(breaks = round(seq(0, 500, by = 100),1)) +
+  xlab('Date')
+
+co2_raw <- merge(co2_raw, co2_raw_summ)
+```
+
+
+####Create complete timeseries to identify any missing datetimes from the dataframe
+```{r checktime}
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
+
+
+ts_interval<- stage_raw$datetime[2] - stage_raw$datetime[1]
+
+##round datetime to nearest whole interval
+stage_raw <- stage_raw%>%
+  mutate(datetime = round_date(datetime, as.period(ts_interval)))
+
+#create full timeseries 
+full_ts <- tibble(datetime=seq.POSIXt(stage_raw$datetime[1], stage_raw$datetime[length(stage_raw$datetime)], by=ts_interval))
+stage_raw <- full_join(full_ts,stage_raw, by='datetime')
+
+#identify missing timesteps:
+miss_ts <- filter(stage_raw, is.na(wtr_ht_pt)) %>%
+  pull(datetime)
+```
+
+```{r}
+#Dygraph for raw data - option to flag deviations by slope change 
+DyRawCO2<- function(df=co2_raw,threshold = 0.002, flag='TRUE',max=8){
+  if (flag){
+    CO2_df <- mutate(co2_raw, flag = ifelse(c(0,abs(diff(co2_ppm)))/co2_ppm > threshold, 11, 10))
+    tsCO <- xts(dplyr::select(CO2_df, datetime, ID, flag, co2_ppm, dmean_co2_ppm), order.by = CO2_df$datetime)
+    dygraph(tsCO) %>% 
+      dyAxis('y',label='ppm',valueRange = c(0, max(co2_raw$co2_ppm)))%>%
+      dyAxis('y2',label='ID',independentTicks=T)%>%
+      dySeries('ID',axis='y2')%>%
+      dyRangeSelector() %>%
+      #dyHighlight(highlightCircleSize = 4, 
+      #        highlightSeriesBackgroundAlpha = 0.2,
+      #        hideOnMouseOut = TRUE)%>%
+      #dyOptions(drawPoints = TRUE, pointSize = 2)%>%
+      dyLegend(show = "always")
+  }else{
+    tsCO<- xts(dplyr::select(CO2_df, datetime, ID, flag, co2_ppm, dmean_co2_ppm), order.by=CO2_df$datetime)
+    dygraph(tsStage) %>% 
+      dyAxis('y',label='mm',valueRange = c(-100, 10000))%>%
+      dyAxis('y2',label='ID',independentTicks=T)%>%
+      dySeries('ID',axis='y2')%>%
+      dyRangeSelector() %>%
+      #dyHighlight(highlightCircleSize = 4, 
+      #        highlightSeriesBackgroundAlpha = 0.2,
+      #        hideOnMouseOut = TRUE)%>%
+      #dyOptions(drawPoints = TRUE, pointSize = 2)%>%
+      dyLegend(show = "always")
   }
 }
 
-opn_concat_all_2022 <- function(interfiles, year) {
-  file_path <- paste(getwd(), interfiles, year, sep='/')
-  path_list <- paste(file_path, list.files(file_path, pattern = ".csv$", recursive = TRUE), sep = '/') 
-  data <- lapply(path_list, function(x) {
-    dat <- read.table(x, skip = 6, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
-    dat$year <- unlist(strsplit(x, "/"))[9]
-    dat$shed <- unlist(strsplit(x, "/"))[10]
-    dat$site <-unlist(strsplit(unlist(strsplit(x, "/"))[11], "_"))[1]
-    # for each item in path list, grab the device number
-    #dat$logr_no <- unlist(strsplit(x, "_"))[9]
-    return(dat)
-  })
-  conv_data <- lapply(data, conv_function)
-  #conv_data <-lapply(conv_data, conv_data[ , order(names(conv_data))])
-  combined.data <- do.call(rbind, conv_data)
-  combined.data <- combined.data %>%
-    mutate(datetime = lubridate::mdy(Date) + hms(Time))%>%
-    distinct()%>%
-    arrange(shed, site, datetime)%>%
-  return(combined.data)
-}
+
+DyRawCO2(df=co2_raw,threshold = 0.2, flag='TRUE')
 ```
 
 ```{r}
-co2_2022 <- opn_concat_all_2022(interfiles, year)
-
-co2_2022$co2_ppm <- (co2_2022$Voltage..V./3)*10000
-```
-
-
-
-
-
-
-```{r, include = FALSE}
-interfiles <- 'formatted_data/stream_co2'
-# possible locations: 'dh', 'est_louis', 'fool', 'lexen'
-year <- '2021'
-location<- 'fc'
-
-site<- 'fc1'
-```
-
-###Create complete timeseries that includes any missing datetimes
-```{r,include = FALSE}
-# #check if collection interval is consistent in dataset. Code as written only handles one interval but can be modified if interval was changed. 
-# checkTimeSteps()
-# 
-# ts_interval<- co2_raw$datetime[2] - co2_raw$datetime[1]
-# 
-# ##round datetime to nearest whole interval
-# co2_raw <- co2_raw%>%
-#   mutate(datetime = round_date(datetime, as.period(ts_interval)))
-# 
-# #create full timeseries 
-# full_ts <- tibble(datetime=seq.POSIXt(co2_raw$datetime[1], co2_raw$datetime[length(co2_raw$datetime)], by=ts_interval))
-# co2_raw <- full_join(full_ts,co2_raw)
-# 
-# 
-# #identify missing timesteps:
-# miss_ts <- filter(co2_raw, is.na(co2_ppm))%>%
-#   pull(datetime)
-# length(miss_ts)
-```
-
-
-###save
-```{r}
-#co2_raw$datetime <- format(co2_raw$datetime, usetz=TRUE)
-
-#interfiles <- '3_cleaned'
-#file_path <- paste(getwd(),interfiles,location,site, sep='/')
-#saveRDS(stage_final, file=paste0('data/cln/wtr_lvl_',loc_site,'.csv'))
-#write_csv(co2_raw, file=paste0(file_path, '_clean.csv'))
-
 
 ```
-
-
-```{r, include=FALSE}
-opn_cleaned <- function(interfiles, location) {
-  file_path <- paste(getwd(),interfiles,location, sep='/')
-  path_list <- paste(file_path, list.files(file_path), sep= '/')
-   data <- lapply(path_list, function(x) {
-     dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
-     # for each item in path list, grab the site nname
-     sitecsv <- unlist(strsplit(x, "/"))[12]
-     dat$site <- unlist(strsplit(sitecsv, "_"))[1]
-     return(dat)
-   })
-   combined.data <- do.call(rbind, data)
-   #drops <- c("formatted_datetime")
-   combined.data <- combined.data %>%
-     #mutate(datetime = strptime(datetime, format = '%Y-%m-%dT%H:%M:%OS%z'))%>%
-     mutate(datetime = lubridate::as_datetime(datetime))%>%
-     arrange(site)%>%
-     #select(-one_of(drops))%>%
-     #distinct()%>%
-     return(combined.data)
- }
-
-```
-
-```{r}
-interfiles <- '3_cleaned'
-# # possible locations: 'dh', 'est_louis', 'fool', 'lexen'
-location <- 'fool'
-co2_cleaned <- opn_cleaned(interfiles, location)
-# 
-str(co2_cleaned)
-# 
-co2_cleaned <- subset(co2_cleaned, datetime <= '2021-07-23 20:00:00')
-                      
-```
-
-```{r}
-# co2plot <- ggplot(data = co2_cleaned, aes(x=datetime, y=co2_ppm, color = site)) + 
-#   geom_line() + 
-#   xlab('Date') +
-#   ylab('CO2 (ppm)') 
-# 
-# 
-# 
-# ggplotly(co2plot)
-```
-
 

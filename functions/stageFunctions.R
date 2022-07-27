@@ -112,9 +112,9 @@ DyBatt<- function(){
 
 AdjStage <- function(df=stage_raw, maxgap=8){
       #create Stage Adj dataframe and adj wt ht column
-      stageAdj<-df%>%
-            mutate(adj_wtr_ht = wtr_ht_avg)
-      #for loop that assigns corrected offset within ranges of IDs define in Cor
+      stageAdj<-df %>%
+            mutate(adj_wtr_ht = wtr_ht_avg) # add the column for adjusted values
+      #for loop that assigns corrected offset within ranges of IDs defined by the vertical_correction dataframe
       for(i in 1:length(vert_correction$ID)){
             if(i<length(vert_correction$ID)){
                   #assigns final ID for each range
@@ -133,6 +133,19 @@ AdjStage <- function(df=stage_raw, maxgap=8){
       stageAdj <- mutate(stageAdj, adj_wtr_ht = na.approx(ifelse(ID %in% bad_id,NA, adj_wtr_ht),maxgap=maxgap,na.rm=F))
       return(stageAdj)    
 }
+
+
+AdjSectionStage <- function(df1, df2, maxgap=8){
+   #create Stage Adj dataframe and adj wt ht column
+   stageAdj <- merge(df1, df2, all.x = TRUE) %>%
+      replace(is.na(.), 0)  %>%
+      rowwise() %>%
+      mutate(adj_wtr_ht = sum(c(wtr_ht_avg + cumOffset))) # add the column for adjusted values
+   stageAdj <- mutate(stageAdj, adj_wtr_ht = na.approx(ifelse(ID %in% bad_id,NA, adj_wtr_ht),maxgap=maxgap,na.rm=F))
+   return(stageAdj)    
+}
+
+
 
 dyStageAdj<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime,wtr_ht_avg,adj_wtr_ht,ID), order.by=df$datetime)

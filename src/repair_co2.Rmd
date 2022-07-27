@@ -1,0 +1,135 @@
+---
+title: "co2_repair"
+author: "Lauren Kremer"
+date: "07/24/2022"
+output: html_document
+---
+
+Script for repairing CO2 sensors from OM-CP-VOLT101A Voltage Data Logger
+
+1) check and compare data from Insight software (dry and unsocked)
+2) check and compare data from voltage datalogger (dry and unsocked)
+3) check and compare data from both software (dry or wet, socked and unsocked)
+
+Requires CO2 raw data
+
+```{r setup, include=FALSE}
+
+source('./functions/co2_DO_functions.R') #load helper functions
+# package loading function
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+
+#### Additional functions
+Functions that open and concatenate formatted data files
+********************************************************
+Convert voltage to CO2:
+
+CO2ppm= (XF−XZ)*V/Vmax +XZ 
+
+where V is the measured voltage, XF is the full scale value for CO2 output XZ is the zero value, Vmax is the full scale DAC output 
+
+Measurement range of the Vaisala sensor 0 - 10 000 ppm CO2
+
+Voltage recorders have different ranges, some with +-3V DC, others with +-160mV DC 
+
+160mV multiplier = high voltage ppm (10,000) / voltage range (160mV) = 62.5 ppm/mV = 62500 ppm/V
+However, 2021 corrections were entered into excel as = ((mV/1000)/3)*10000
+This multiplier seems to work better than the first but does not make sense. One possibility is that the range of the sensor on the 160mV is 3,000 ppm (not high voltage ppm).  That would make the multiplier: 3000 ppm/160mV = 18.75
+
+3V multiplier = high voltage ppm (10,000) / voltage range (3V) = 3333.33 ppm/V 
+
+*******MORE ON THIS LATER, FOR NOW (15 JUNE 2022), USING A CONVERSION OF MV TO V IF NEEDED, AND CALCULATING THE MULTIPLIER BASED ON A 3V DATALOGGER. 160MV MULTIPLIER AS ABOVE GIVES PPMS ~5000.
+
+
+```{r functions, include=FALSE}
+
+opn_insight <- function(interfiles) {
+   file_path <- paste(getwd(), interfiles, sep='/')
+   path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
+   data <- lapply(path_list, function(x) {
+      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      return(dat)
+   })
+   combined.data <- do.call(rbind, data)
+}
+
+interfiles <- 'formatted_data/other_co2/repairs/insight'
+
+insight_df <- opn_dflist(interfiles) %>%
+  mutate(Timestamp = lubridate::mdy_hm(Timestamp))
+
+```
+
+```{r}
+opn_omcp <- function(interfiles) {
+   file_path <- paste(getwd(), interfiles, sep='/')
+   path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
+   data <- lapply(path_list, function(x) {
+      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      # for each item in path list, grab the cap_rod number
+      if(colnames(dat[2]) == 'voltage_mv') {
+      dat$CO2_ppm = ((dat$voltage_mv*10000)/160)
+      dat$voltage_v = dat$voltage_mv/1000
+    } else {
+      dat$CO2_ppm = dat$voltage_v *3333.33
+      dat$voltage_mv = dat$voltage_v*1000
+    }
+      return(dat)
+   })
+   combined.data <- do.call(rbind, data)
+}
+
+interfiles <- 'formatted_data/other_co2/repairs/OMCP'
+
+omcp_df <- opn_omcp(interfiles) %>%
+  mutate(Timestamp = lubridate::mdy_hm(Timestamp))
+```
+
+
+```{r}
+
+all_co2 <- omcp_df %>%
+  select(Timestamp, logger_serialno, sensor_serialno, sensor_treatment, software, CO2_ppm) %>%
+  rbind(., insight_df)
+
+```
+
+
+```{r}
+cols <- c("logger_serialno", "sensor_serialno", "sensor_treatment", "software")
+library(magrittr)
+plot_sub <- all_co2 %<>% mutate_at(cols, factor) %>%
+  mutate(datetime = round_date(Timestamp, unit = 'hour')) %>%
+  group_by(datetime, logger_serialno,  sensor_serialno,  sensor_treatment, software) %>%
+  summarise(hrmean_co2 = mean(CO2_ppm)) %>%
+  filter(sensor_treatment != 'covered_dry_poststream' & sensor_treatment != 'drying_postreassembly')
+
+
+       
+ggplot(plot_sub, aes(datetime, hrmean_co2, group = sensor_serialno, color = sensor_serialno)) +
+  geom_line() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('CO2 (ppm)') +
+  scale_y_continuous(breaks = round(seq(0, 500, by = 100),1)) +
+  xlab('Date')
+
+```
+
+```{r}
+
+```
+
