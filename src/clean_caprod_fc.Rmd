@@ -2,15 +2,43 @@
 title: "Cap Rod Cleaning - Fool Creek "
 author: "Adapted for FEF by LKremer"
 date: "`r format(Sys.Date())`"
-output: html_document
-editor_options: 
-  chunk_output_type: console
+output:
+  html_document:
+    theme: journal
+    highlight: breezedark
+    code_folding: hide
 ---
-<style>
-.html-widget {
-    margin: auto;
-}
-</style>
+
+
+
+```{r}
+ #   toc: true
+ #   toc_depth: 1
+ #   toc_float: true
+
+#<style>
+#.html-widget {
+#    margin: auto;
+#}
+#</style>
+
+#<style type="text/css">
+#.main-container {
+#  max-width: 1600px;
+#  margin-left: 0px;
+#  margin-right: 100px;
+#}
+#</style>
+
+
+# <style>
+#.main-container {
+#    max-width: 1600px;
+#    margin-left: 0;
+#    margin-right: 100px;
+#}
+#</style>
+```
 
 This script is used to clean water level data from TruTrak capacitance rods
 designed for surface water level measurements.
@@ -27,7 +55,12 @@ Inputs are capacitance rod raw data (periodically downloaded .csvs) and a manual
 Package and function import from .R script
 
 ```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(message=F, warning=F, error=F, 
+                      comment=NA, cache=T, R.options=list(width=220), 
+                      fig.align='center', out.width='75%', fig.asp=.75)
 
+#editor_options: 
+#  chunk_output_type: console
 pkgTest <- function(x)
 {
   if (x %in% rownames(installed.packages()) == FALSE) {
@@ -51,7 +84,7 @@ library(ggpubr)
 ```
 
 #### Additional functions
-Functions that open and concatonate formatted data files
+Functions that open and concatenate formatted data files
 
 ```{r functions, include=FALSE}
 
@@ -82,9 +115,9 @@ concat_2020 <- function(data) {
 }
 ```
 
-# 2020
+## 2020 {.tabset .tabset-fade}
 
-## 2020 - Fool1 
+### Fool1 {.tabset .tabset-fade .tabset-pills}
 
 Caprod data collection terminated on November 4, 2020 for all Fool sites except for Fool1, which was noted to be pulled by Kelly on October 20, 2020 (ID~16000)
 
@@ -111,9 +144,10 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 ```
 
 #### Create complete timeseries 
-Identifies any missing datetimes from the dataframe:
 
 ```{r checktimefc1_20, echo=FALSE, results = 'asis'}
+#Identifies any missing datetimes from the dataframe:
+
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
 
@@ -142,7 +176,7 @@ cat(paste0(
 
 #### Clean Raw Stage
 
-1) Plot temperature for quick checks
+##### 1) Plot temperature for quick checks
  
 ```{r chktempfc1_20, fig.align = "center", fig.cap = "Figure 1.1.2: Air temperature data captured by the capacitance rod Fool 1 (outlet) in 2020. Rod in Fool 1 was pulled from stream on October 20th.", echo=FALSE}
 
@@ -152,14 +186,14 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 # Temperature is variable (dry?) ~ID#16685 rod was pulled 10/20
 ```
 
-2) Plot raw data with flag if raw level changes by more than 20%.
+##### 2) Plot raw data with flag if raw level changes by more than 20%.
 ```{r plantflagsfc1, fig.align = "center", fig.cap = "Figure 1.1.3: Raw stage data from Fool 1 2020 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
 ```
 
-3) Manually identify points to be removed or corrected using the flagged plot
+##### 3) Manually identify points to be removed or corrected using the flagged plot
 ```{r badidfc1_20}
 #fool1
 bad_id_fc1_2020 <- c(977:981, 5050:5053, 10953:10957)
@@ -176,8 +210,8 @@ bad_id <- bad_id_fc1_2020
 vert_correction <- vert_correction_fc1_2020
 ```
 
-4) Vertical adjustments
-```{r correctfc1_20}
+##### 4) Vertical adjustments
+```{r vertcorrectfc1_20}
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
     mutate(watershed = watershed)%>%
@@ -194,17 +228,16 @@ stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
 #### Plot adjusted stage
 ```{r plot4fc1_20, fig.align = "center", fig.cap = "Figure 1.1.4: Stage data from Fool 1 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
 
-Plot adjusted values only:
+#### Plot adjusted values only:
 ```{r plot5fc1_20, fig.align = "center", fig.cap = "Figure 1.1.5: Same as 1.4 but limited to adjusted values only.", echo=FALSE, fig.align = "center"}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -220,9 +253,9 @@ dyStageAdjonly(df=stage_adj)
 
 ```
 
+#### Manual adjustments: 
+```{r plot6fc1_20,, fig.align = "center", fig.cap = "Figure 1.1.6: Adjusted stage data from Fool 1 which includes a manual offset that adjusts all values in the dataframe. "}
 
-
-```{r, fig.align = "center", fig.cap = "Figure 1.1.6: Adjusted stage data from Fool 1 which includes a manual offset that adjusts all values in the dataframe. "}
 manual_offset <- 25
 # fc1 = 
 # fc2 = 0
@@ -246,7 +279,7 @@ can help to verify trends and inform adjustments (see below)
 
 
 #### Export cleaned data
-```{r exportfc1, include = FALSE}
+```{r exportfc1_20, include = FALSE}
 
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -261,10 +294,11 @@ file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
 
 #saveRDS(stage_final, file=paste0('data/cln/wtr_lvl_',loc_site,'.csv'))
 write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+
 ```
 
 
-## 2020 - Fool2 
+### Fool2 {.tabset .tabset-fade .tabset-pills}
 
 November 4 ~ID no. 18142, but may have been pulled or dry sooner
 ```{r importfc2, include=FALSE}
@@ -289,7 +323,8 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries 
+Identifies any missing datetimes from the dataframe:
 ```{r checktimefc2_20, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -317,37 +352,40 @@ cat(paste0(
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
-1) Plot temperature for quick checks
+##### 1) Plot temperature for quick checks
  
-```{r chktempfc2r_20, fig.align = "center", fig.cap = "Figure 1.2.2: Air temperature data captured by the capacitance rod Fool 2 in 2020.", echo=FALSE}
+```{r chktempfc2_20, fig.align = "center", fig.cap = "Figure 1.2.2: Air temperature data captured by the capacitance rod Fool 2 in 2020.", echo=FALSE}
 
 #check temp data
 DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 ```
 
-2) Plot raw data with flag if raw level changes by more than 2%.
-```{r plantflagsfc2, fig.align = "center", fig.cap = "Figure 1.2.1: Raw data for Fool 2 stage in 2020.", echo=FALSE}
+##### 2) Plot raw data with flag if raw level changes by more than 2%.
+```{r plantflagsfc2, fig.align = "center", fig.cap = "Figure 1.2.3: Raw stage data from Fool 2 2020 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
-DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
+DyRawStage(df=stage_raw, threshold = 0.2, flag='TRUE')
 ```
 
-3) Manually identify points to be removed or corrected using the flagged plot
-```{r badidfc2}
+##### 3) Manually identify points to be removed or corrected using the flagged plot
+```{r badidfc2_20}
 #fool2
 bad_id_fc2_2020 <- c(4953:4960, 11952:12730)
 
 vert_correction_fc2_2020 <- data.frame(ID = c(1:2), offset=c(0.00)) %>%
   mutate(cumOffset = cumsum(offset))
+```
 
+
+```{r badid2fc2_20, include=FALSE}
 bad_id <- bad_id_fc2_2020
 vert_correction <- vert_correction_fc2_2020
 ```
 
-4) Vertical adjustments
-```{r correctfc2}
+##### 4) Vertical adjustments
+```{r vertcorrectfc2_20}
 
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
@@ -363,18 +401,18 @@ stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc2_20}
+```{r plot4fc2_20, fig.align = "center", fig.cap = "Figure 1.2.4: Stage data from Fool 2 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
 dyStageAdj(df=stage_adj)
 
 ```
 
-Plot adjusted values only:
+#### Plot adjusted values only:
 ```{r plot5fc2_20, fig.align = "center", fig.cap = "Figure 1.2.5: Same as 2.4 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -389,8 +427,8 @@ dyStageAdjonly<- function(df= stageAdj,max=1200){
 dyStageAdjonly(df=stage_adj)
 ```
 
-
-```{r man_adj_fc2_20}
+#### Manual adjustments: 
+```{r plot6fc2_20,, fig.align = "center", fig.cap = "Figure 1.2.6: Adjusted stage data from Fool 2 which includes a manual offset that adjusts all values in the dataframe. "}
 
 manual_offset <- -70
 
@@ -412,9 +450,8 @@ Figures of:
 2. stage data for all years for each site
 can help to verify trends and inform adjustments (see below)
 
-###Export cleaned data
-```{r exportfc2}
-
+#### Export cleaned data
+```{r exportfc2_20}
 stage_final <- stage_adj %>%
       drop_na() %>%
       mutate(date = lubridate::date(datetime)) %>%
@@ -431,10 +468,9 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
 
-## 2020 - Fool3 
+### Fool3 {.tabset .tabset-fade .tabset-pills}
 
-
-```{r importfc3, include=FALSE}
+```{r importfc3_20, include=FALSE}
 
 interfiles <- 'formatted_data/stage_caprod'
 year <- 2020
@@ -447,7 +483,7 @@ stage_raw <- concat_2020(opn_as_dflist(interfiles, year, watershed, site))
 
 Quick raw plot of point data
 
-```{r plot1fc3, fig.align = "center", fig.cap = "Figure 1.3.1: Raw data for Fool 3 stage in 2020.", echo=FALSE}
+```{r plot1fc3_20, fig.align = "center", fig.cap = "Figure 1.3.1: Raw data for Fool 3 stage in 2020.", echo=FALSE}
 
 ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
   geom_line() +
@@ -456,7 +492,8 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries 
+Identifies any missing datetimes from the dataframe:
 ```{r checktimefc3_20, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -478,43 +515,44 @@ miss_ts <- filter(stage_raw, is.na(wtr_ht_pt)) %>%
 ```
 
 
-```{r checktime2fc3, echo=FALSE, results = 'asis'}
+```{r checktime2fc3_20, echo=FALSE, results = 'asis'}
 cat(paste0(
   "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
-1) Plot temperature for quick checks
- 
+##### 1) Plot temperature for quick checks
 ```{r chktempfc3_20, fig.align = "center", fig.cap = "Figure 1.3.2: Air temperature data captured by the capacitance rod Fool 3 in 2020.", echo=FALSE}
 
-#check temp data
 DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 ```
 
-2) Plot raw data with flag if raw level changes by more than 2%.
-```{r plantflagsfc3}
+##### 2) Plot raw data with flag if raw level changes by more than 2%.
+```{r plantflagsfc3_20, fig.align = "center", fig.cap = "Figure 1.3.3: Raw stage data from Fool 3 2020 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
 ```
 
-3) Manually identify points to be removed or corrected using the flagged plot
-```{r badidfc3}
+##### 3) Manually identify points to be removed or corrected using the flagged plot
+```{r badidfc3_20}
 #fool3
 bad_id_fc3_2020 <- c(5182:5186)
 
 vert_correction_f3_2020 <- data.frame(ID = c(7860:12965), offset=c(20)) %>%
   mutate(cumOffset = offset)
+```
 
+
+```{r badid2fc3_20, include=FALSE}
 bad_id <- bad_id_fc3_2020
 vert_correction<- vert_correction_f3_2020
 ```
 
-4) Vertical adjustments
-```{r correctfc3}
+##### 4) Vertical adjustments
+```{r vertcorrectfc3_20}
 
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
@@ -530,17 +568,18 @@ stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc3_2020, fig.align = "center", fig.cap = "Figure 1.3.4: Same as 3.4 but limited to adjusted values only.", echo=FALSE}
+```{r plot4fc3_20, fig.align = "center", fig.cap = "Figure 1.3.4: Stage data from Fool 3 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
 dyStageAdj(df=stage_adj)
 
 ```
 
-Plot adjusted values only:
-```{r plot5fc3_20, fig.align = "center", fig.cap = "Figure 1.3.5: Same as 1.4 but limited to adjusted values only.", echo=FALSE}
+#### Plot adjusted values only:
+```{r plot5fc3_20, fig.align = "center", fig.cap = "Figure 1.3.5: Same as 3.4 but limited to adjusted values only.", echo=FALSE}
+
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -556,7 +595,8 @@ dyStageAdjonly(df=stage_adj)
 ```
 
 
-```{r man_adjfc3_20}
+#### Manual adjustments: 
+```{r plot6fc3_20,, fig.align = "center", fig.cap = "Figure 1.3.6: Adjusted stage data from Fool 3 which includes a manual offset that adjusts all values in the dataframe. "}
 
 manual_offset <- -25
 
@@ -571,14 +611,15 @@ simplefc3_20 <- stage_adj %>%
 dyStageAdjonly(df=stage_adj)
 ```
 
-If no manual measurements accompany dataset (as is the case in 2020), then data can be exported.
+If no manual measurements accompany dataset (as is the case in 2020), 
+then data can be exported.
 Figures of:
 1. all stage data for a watershed in a given year 
 2. stage data for all years for each site
 can help to verify trends and inform adjustments (see below)
 
-###Export cleaned data
-```{r exportfc3}
+#### Export cleaned data
+```{r exportfc3_20}
 
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -596,10 +637,9 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
 
-##2020 - Fool4  
+### Fool4 {.tabset .tabset-fade .tabset-pills}
 
-
-```{r importfc4, include=FALSE}
+```{r importfc4_20, include=FALSE}
 
 interfiles <- 'formatted_data/stage_caprod'
 year <- 2020
@@ -610,7 +650,8 @@ stage_raw <- concat_2020(opn_as_dflist(interfiles, year, watershed, site))
 
 ```
 
-```{r plot1fc4, fig.align = "center", fig.cap = "Figure 1.4.1: Raw data for Fool 4 stage in 2020.", echo=FALSE}
+Quick plot of raw data
+```{r plot1fc4_20, fig.align = "center", fig.cap = "Figure 1.4.1: Raw data for Fool 4 stage in 2020.", echo=FALSE}
 #quick plot of stage
 
 ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
@@ -620,7 +661,8 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
   
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries 
+Identifies any missing datetimes from the dataframe
 ```{r checktimefc4_20, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -642,7 +684,7 @@ miss_ts <- filter(stage_raw, is.na(wtr_ht_pt)) %>%
 ```
 
 
-```{r checktime2fc4, echo=FALSE, results = 'asis'}
+```{r checktime2fc4_20, echo=FALSE, results = 'asis'}
 cat(paste0(
   "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
 
@@ -650,7 +692,7 @@ cat(paste0(
 
 ###Clean Raw Stage
 
-1) Plot temperature for quick checks
+##### 1) Plot temperature for quick checks
  
 ```{r chktempfc4_20, fig.align = "center", fig.cap = "Figure 1.4.2: Air temperature data captured by the capacitance rod Fool 4 in 2020.", echo=FALSE}
 
@@ -658,27 +700,31 @@ cat(paste0(
 DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 ```
 
-2) Plot raw data with flag if raw level changes by more than 2%.
-```{r plantflagsfc4}
+##### 2) Plot raw data with flag if raw level changes by more than 2%.
+```{r plantflagsfc4_20, fig.align = "center", fig.cap = "Figure 1.4.3: Raw stage data from Fool 4 2020 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
+
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
 ```
 
-3) Manually identify points to be removed or corrected using the flagged plot
-```{r badidfc4}
+##### 3) Manually identify points to be removed or corrected using the flagged plot
+```{r badidfc4_20}
 #fool4
 bad_id_fc4_2020 <- c(5182:5186, 5909:5912)
 
 vert_correction_f4_2020 <- data.frame(ID = c(7860:12965), offset=c(0.00)) %>%
   mutate(cumOffset = cumsum(offset))
+```
 
+
+```{r badid2fc4_20, include=FALSE}
 bad_id <- bad_id_fc4_2020
 vert_correction<- vert_correction_f4_2020
 ```
 
-4) Vertical adjustments
-```{r correctfc4}
+##### 4) Vertical adjustments
+```{r vertcorrectfc4_20}
 
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
@@ -693,20 +739,20 @@ stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
 
 ```
 
-####Plot adjusted stage
-```{r plot2fc4}
+#### Plot adjusted stage
+```{r plot4fc4_20, fig.align = "center", fig.cap = "Figure 1.4.4: Stage data from Fool 4 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
 #plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
 
-####Plot adjusted values only:
+#### Plot adjusted values only:
 ```{r plot5fc4_20, fig.align = "center", fig.cap = "Figure 1.4.5: Same as 4.5 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -732,8 +778,8 @@ Figures of:
 2. stage data for all years for each site
 can help to verify trends and inform adjustments (see below)
 
-###Export cleaned data
-```{r exportfc4}
+#### Export cleaned data
+```{r exportfc4_20}
 
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -750,7 +796,7 @@ file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
 write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
-##2020 Site stack
+## 2020 Site stack
 Stack sites in a plot to 
 1. check interannual variation
 2. verify/modify vertical corrections
@@ -767,11 +813,7 @@ sitestack_20
 ```
 
 
-
-
-
-
-#2021
+## 2021 {.tabset}
 
 All Fool data terminated 9/29/21 
 ```{r functions21, include=FALSE}
@@ -788,7 +830,7 @@ concat_2021 <- function(data) {
 }
 ```
 
-##2021 - Fool1
+### Fool1 {.tabset .tabset-fade .tabset-pills}
 
 ```{r importfc1_21, include=FALSE}
 interfiles <- 'formatted_data/stage_caprod'
@@ -801,8 +843,8 @@ stage_raw <- concat_2021(opn_as_dflist(interfiles, year, watershed, site)) %>%
 
 ```
 
+Quick raw plot of point data
 ```{r plot1fc1_21, fig.align = "center", fig.cap = "Figure 2.1.1: Raw data for Fool 1 stage in 2020.", echo=FALSE}
-#quick plot of stage
 
 ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
   geom_line() +
@@ -811,7 +853,8 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries 
+Identifies any missing datetimes from the dataframe
 ```{r checktimefc1_21, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -839,9 +882,9 @@ cat(paste0(
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
-1) Plot temperature for quick checks
+##### 1) Plot temperature for quick checks
  
 ```{r chktempfc1_21, fig.align = "center", fig.cap = "Figure 2.1.2: Air temperature data captured by the capacitance rod Fool 1 (outlet) in 2021.", echo=FALSE}
 
@@ -850,14 +893,14 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 
 ```
 
-2) Plot raw data with flag if raw level changes by more than 2%.
-```{r plantflagsfc1_21}
+##### 2) Plot raw data with flag if raw level changes by more than 2%.
+```{r plantflagsfc1_2021, fig.align = "center", fig.cap = "Figure 2.1.3: Raw stage data from Fool 1 2021 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
 ```
 
-3) Manually identify points to be removed or corrected using the flagged plot
+##### 3) Manually identify points to be removed or corrected using the flagged plot
 ```{r badidfc1_21}
 #fool2
 bad_id_fc1_2021 <-  c(0:289, 1895:1898, 2910:2914, 4053:4056, 4944:4948, 8099:8103, 14991:14994, 18129:18132)
@@ -865,13 +908,16 @@ bad_id_fc1_2021 <-  c(0:289, 1895:1898, 2910:2914, 4053:4056, 4944:4948, 8099:81
 #fool2
 vert_correction_fc1_2021<- data.frame(ID = c(8175:8186), offset=c(0))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc1_21, include=FALSE}  
 bad_id <- bad_id_fc1_2021
 vert_correction <- vert_correction_fc1_2021
 ```
 
-4) Vertical adjustments
-```{r correctfc1_21}
+##### 4) Vertical adjustments
+```{r vertcorrectfc1_21}
 
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
@@ -887,19 +933,18 @@ stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc3_20}
+```{r plot4fc1_21, fig.align = "center", fig.cap = "Figure 2.1.4: Stage data from Fool 1 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
 
 Plot adjusted values only:
-```{r plot4fc1, fig.align = "center", fig.cap = "Figure 2.1.5: Same as 1.4 but limited to adjusted values only.", echo=FALSE}
+```{r plot5fc1_21, fig.align = "center", fig.cap = "Figure 2.1.5: Same as 1.4 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -920,7 +965,7 @@ simplefc1_21 <- stage_adj %>%
 ```
 
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc1_21}
 # load manual measurements
 interfiles <- 'formatted_data/manual_measurements'
@@ -957,8 +1002,8 @@ depth_offset <- manMeas_fil %>%
   pull(depth_offset)
 ```
 
-
-```{r wtrdepthfc1_21}
+#### Manual adjustments: 
+```{r plot6fc1_21,, fig.align = "center", fig.cap = "Figure 2.1.6: Adjusted stage data from Fool 1 which includes a manual offset that adjusts all values in the dataframe."}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 manual_offset <- 5
 # fc1 = 
@@ -970,8 +1015,8 @@ stage_adj <- stage_adj%>%
   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc1_21}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc1_21, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 stage_adj <- as.data.frame(stage_adj)
 stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -983,7 +1028,7 @@ ggplot(stageAdj.man, aes(datetime, diff))+
 ```
 
 
-```{r plot5fc1_21}
+```{r plot8fc1_21, fig.align = "center", fig.cap = "Figure 2.1.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 stage_check_plot<- stage_adj%>%
   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -994,7 +1039,7 @@ stage_check_plot<- stage_adj%>%
 ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
+#### Export cleaned data
 ```{r savefc1_21}
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -1011,8 +1056,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 
 ```
 
-##2021 - Fool2
-
+### Fool2 {.tabset .tabset-fade .tabset-pills}
 
 ```{r importfc2_21, include=FALSE}
 interfiles <- 'formatted_data/stage_caprod'
@@ -1024,7 +1068,7 @@ stage_raw <- concat_2021(opn_as_dflist(interfiles, year, watershed, site))
 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc2_21, fig.align = "center", fig.cap = "Figure 2.2.1: Raw data for Fool 2 stage in 2021.", echo=FALSE}
 #quick plot of stage
 
@@ -1033,7 +1077,7 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries to identify any missing datetimes from the dataframe
 ```{r checktimefc2_21, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -1061,7 +1105,7 @@ cat(paste0(
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
 1) Plot temperature for quick checks
  
@@ -1075,7 +1119,7 @@ Looks like air temp until ~ID273
 
 2) Plot raw data with flag if raw level changes by more than 2%.
 
-```{r plantflagsfc2_21}
+```{r plantflagsfc2_2021, fig.align = "center", fig.cap = "Figure 2.2.3: Raw stage data from Fool 2 2021 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
@@ -1089,7 +1133,10 @@ bad_id_fc2_2021 <- c(0:219,1174:1178, 4288:4293, 11104:11107, 16256:16257)
 #fool2
 vert_correction_fc1_2021 <- data.frame(ID = c(4262:16257), offset=c(-.0015))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc2_21, include=FALSE}
 bad_id <- bad_id_fc2_2021
 vert_correction <- vert_correction_fc1_2021
 ```
@@ -1109,19 +1156,18 @@ stageAdj<- AdjStage(maxgap=30)
 ```
 
 #### Plot adjusted stage
-```{r plot2fc2_21}
+```{r plot4fc2_21, fig.align = "center", fig.cap = "Figure 2.2.4: Stage data from Fool 2 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
 
 Plot adjusted values only:
-```{r plot3fc2_21, fig.align = "center", fig.cap = "Figure 2.2.5: Same as 2.2.4 but limited to adjusted values only.", echo=FALSE}
+```{r plot5fc2_21, fig.align = "center", fig.cap = "Figure 2.2.5: Same as 2.2.4 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -1142,7 +1188,7 @@ simplefc2_21 <- stage_adj %>%
 ```
 
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc2_21}
 # load manual measurements
 interfiles <- 'formatted_data/manual_measurements'
@@ -1180,7 +1226,8 @@ depth_offset <- manMeas_fil %>%
 ```
 
 
-```{r wtrdepthfc2_21}
+Manual adjustments: 
+```{r plot6fc2_21,, fig.align = "center", fig.cap = "Figure 2.2.6: Adjusted stage data from Fool 2 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 manual_offset <- 0
 # fc1 = 
@@ -1192,8 +1239,8 @@ stage_adj <- stage_adj%>%
   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc2_21}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc2_21, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 stage_adj <- as.data.frame(stage_adj)
 stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -1205,7 +1252,7 @@ ggplot(stageAdj.man, aes(datetime, diff))+
 ```
 
 
-```{r plot5fc2_21}
+```{r plot8fc2_21, fig.align = "center", fig.cap = "Figure 2.2.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 stage_check_plot<- stage_adj%>%
   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -1216,7 +1263,7 @@ stage_check_plot<- stage_adj%>%
 ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
+#### Export cleaned data
 ```{r savefc2_21}
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -1234,8 +1281,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
 
-
-##2021 - Fool3
+### Fool3
 
 
 ```{r importfc3_21, include=FALSE}
@@ -1248,7 +1294,7 @@ stage_raw <- concat_2021(opn_as_dflist(interfiles, year, watershed, site))
 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc3_21, fig.align = "center", fig.cap = 'Figure 2.3.1: Raw data for Fool3 stage in 2021.', echo=FALSE}
 #quick plot of stage
 
@@ -1257,7 +1303,9 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries 
+Identifies any missing datetimes from the dataframe
+
 ```{r checktimefc3_21, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -1285,7 +1333,7 @@ cat(paste0(
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
 1) Plot temperature for quick checks
  
@@ -1299,7 +1347,7 @@ Looks like air temp until ~ID273
 
 2) Plot raw data with flag if raw level changes by more than 2%.
 
-```{r plantflagsfc3_21}
+```{r plantflagsfc3_21, fig.align = "center", fig.cap = "Figure 2.3.3: Raw stage data from Fool 3 2021 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
@@ -1313,14 +1361,17 @@ bad_id_fc3_2021 <- c(0:5,1166:1170, 4283:4287, 10091:10095)
 #fool3
 vert_correction_fc3_2021<- data.frame(ID = c(5714:14203), offset=c(-0.0033))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc3_21, include=FALSE}  
 bad_id <- bad_id_fc3_2021
 
 vert_correction <- vert_correction_fc3_2021
 
 ```
 
-
+4) Vertical adjustments
 ```{r vertcorrect_fc3_21}
 stage_adj<- AdjStage(df= stage_raw, maxgap=8) %>%
     filter(ID < 14229) %>%
@@ -1333,19 +1384,18 @@ stage_adj<- AdjStage(df= stage_raw, maxgap=8) %>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc3_21}
+```{r plot4fc3_21, fig.align = "center", fig.cap = "Figure 2.3.4: Stage data from Fool 3 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
 
 Plot adjusted values only:
-```{r plot3fc3_21, fig.align = "center", fig.cap = "Figure 2.3.5: Same as 3.4 but limited to adjusted values only.", echo=FALSE}
+```{r plot5fc3_21, fig.align = "center", fig.cap = "Figure 2.3.5: Same as 3.4 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(-50, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -1366,7 +1416,7 @@ simplefc3_21 <- stage_adj %>%
 ```
 
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc3_21}
 # load manual measurements
 interfiles <- 'formatted_data/manual_measurements'
@@ -1404,7 +1454,8 @@ depth_offset <- manMeas_fil %>%
 ```
 
 
-```{r wtrdepthfc3_21}
+Manual adjustments: 
+```{r plot6fc3_21,, fig.align = "center", fig.cap = "Figure 2.3.6: Adjusted stage data from Fool 3 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 #stage_adj[14231:16228,]$adj_wtr_ht <- stage_adj[14231:16228,]$adj_wtr_ht + 35
 
@@ -1418,8 +1469,8 @@ stage_adj <- stage_adj%>%
   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc3_21}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc3_21, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 stage_adj <- as.data.frame(stage_adj)
 stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -1431,7 +1482,7 @@ ggplot(stageAdj.man, aes(datetime, diff))+
 ```
 
 
-```{r plot5fc3_21}
+```{r plot8fc3_21, fig.align = "center", fig.cap = "Figure 2.3.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 stage_check_plot<- stage_adj%>%
   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -1442,8 +1493,8 @@ stage_check_plot<- stage_adj%>%
 ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
-```{r savefc32021}
+#### Export cleaned data
+```{r savefc3_21}
 stage_final <- stage_adj %>%
       drop_na() %>%
       mutate(date = lubridate::date(datetime)) %>%
@@ -1459,7 +1510,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
 
-##2021 - Fool4
+### Fool4
 
 
 ```{r importfc4_21, include=FALSE}
@@ -1471,7 +1522,7 @@ site <- 'fc4'
 stage_raw <- concat_2021(opn_as_dflist(interfiles, year, watershed, site)) 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc4_21, fig.align = 'center', fig.cap = "Figure 2.4.1: Raw data for Fool 4 stage in 2021.", echo=FALSE}
 
 ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
@@ -1480,7 +1531,7 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 ```
 
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries to identify any missing datetimes from the dataframe
 
 ```{r checktimefc4_21, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
@@ -1510,7 +1561,7 @@ cat(paste0(
 ```
 
 
-### Clean Raw Stage
+#### Clean Raw Stage
 
 1) Plot temperature for quick checks
  
@@ -1523,7 +1574,7 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 
 2) Plot raw data with flag if raw level changes by more than 2%.
 
-```{r plantflagsfc4_21}
+```{r plantflagsfc4_21, fig.align = "center", fig.cap = "Figure 2.4.3: Raw stage data from Fool 4 2021 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
@@ -1538,7 +1589,10 @@ bad_id_fc4_2021 <- c(3900:3905, 8965:8969, 10967:10971)
 #fool3
 vert_correction_fc4_2021<- data.frame(ID = c(8175:8176), offset=c(0))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc4_21, include=FALSE}  
 bad_id <- bad_id_fc4_2021
 
 vert_correction <- vert_correction_fc4_2021
@@ -1560,8 +1614,8 @@ stage_adj<- AdjStage(df= stage_raw, maxgap=8)%>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc4_21}
-#plot adjusted stage
+```{r plot4fc4_21, fig.align = "center", fig.cap = "Figure 2.4.4: Stage data from Fool 4 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
+
 dyStageAdj(df=stage_adj)
 
 ```
@@ -1570,7 +1624,7 @@ look at the adjusted values only
 ```{r plot3fc4_21, fig.align = "center", fig.cap = "Figure 2.4.5: Same as 2.4.4 but limited to adjusted values only.", echo=FALSE}
 dyStageAdjonly<- function(df = stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -1590,7 +1644,7 @@ simplefc4_21 <- stage_adj %>%
   drop_na()
 ```
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc4_21}
 # # load manual measurements
 interfiles <- 'formatted_data/manual_measurements'
@@ -1630,7 +1684,8 @@ depth_offset
 ```
 
 
-```{r wtrdepthfc4_21}
+Manual adjustments: 
+```{r plot6fc4_21,, fig.align = "center", fig.cap = "Figure 2.4.6: Adjusted stage data from Fool 4 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 manual_offset <- 0
 # fc1 =
@@ -1642,8 +1697,8 @@ stage_adj <- stage_adj%>%
   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc4_21}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc4_21, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 stage_adj <- as.data.frame(stage_adj)
 stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -1655,7 +1710,7 @@ ggplot(stageAdj.man, aes(datetime, diff))+
 ```
 
 
-```{r plot5fc4_21}
+```{r plot8fc4_21, fig.align = "center", fig.cap = "Figure 2.4.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 stage_check_plot<- stage_adj %>%
   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -1666,7 +1721,7 @@ stage_check_plot<- stage_adj %>%
 ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
+#### Export cleaned data
 ```{r savefc4_21}
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -1683,7 +1738,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
 
-##2021 Site stack
+## 2021 Site stack
 Stack sites in a plot to 
 1. check interannual variation
 2. verify/modify vertical corrections
@@ -1700,8 +1755,8 @@ sitestack_21
 ```
 
 
-#2022
-##2022 - Fool1
+## 2022 {.tabset}
+### Fool1 
 
 Data termination date: 
 ```{r functions22, include=FALSE}
@@ -1733,7 +1788,7 @@ stage_raw <- stage_raw%>%
 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc1_22, fig.align = "center", fig.cap = 'Figure 3.1.1: Raw data for Fool 1 stage in 2022.', echo=FALSE}
 #quick plot of stage
 
@@ -1742,7 +1797,7 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+geom_line()
 ```
 
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries to identify any missing datetimes from the dataframe
 ```{r checktimefc1_22, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -1761,13 +1816,15 @@ stage_raw <- full_join(full_ts,stage_raw, by='datetime')
 #identify missing timesteps:
 miss_ts <- filter(stage_raw, is.na(wtr_ht_pt)) %>%
   pull(datetime)
+```
 
+```{r checktime2fc1_22, echo=FALSE, results = 'asis'}
 cat(paste0(
   "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
 1) Plot temperature for quick checks
  
@@ -1778,7 +1835,7 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 ```
 
 2) Plot raw data with flag if raw level changes by more than 2%.
-```{r plantflagsfc1_22}
+```{r plantflagsfc1_22, fig.align = "center", fig.cap = "Figure 3.1.3: Raw stage data from Fool 1 2022 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
@@ -1792,13 +1849,16 @@ bad_id_fc1_2022 <-  c(3626:3916, 8044:8066, 11089:11093, 12236:12239, 12984:1299
 #fool2
 vert_correction_fc1_2022<- data.frame(ID = c(8175:8186), offset=c(0))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc1_22, include=FALSE}  
 bad_id <- bad_id_fc1_2022
 vert_correction <- vert_correction_fc1_2022
 ```
 
 4) Vertical adjustments
-```{r correctfc1_22}
+```{r vertcorrectfc1_22}
 
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
@@ -1814,19 +1874,19 @@ stage_adj<- AdjStage(df=stage_raw, maxgap=8)%>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc1_22}
+```{r plot4fc1_22, fig.align = "center", fig.cap = "Figure 3.1.4: Stage data from Fool 1 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
+
 dyStageAdj(df=stage_adj)
 
 ```
 
 Plot adjusted values only:
-```{r plot3fc1_22, fig.align = "center", fig.cap = "Figure 3.1.5: Same as 3.1.4 but limited to adjusted values only.", echo=FALSE}
+```{r plot5fc1_22, fig.align = "center", fig.cap = "Figure 3.1.5: Same as 3.1.4 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -1847,7 +1907,7 @@ simplefc1_22 <- stage_adj %>%
 ```
 
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc1_22}
 # load manual measurements
 # interfiles <- 'formatted_data/manual_measurements'
@@ -1885,7 +1945,8 @@ simplefc1_22 <- stage_adj %>%
 ```
 
 
-```{r wtrdepthfc1_22}
+Manual adjustments: 
+```{r plot6fc1_22,, fig.align = "center", fig.cap = "Figure 3.1.6: Adjusted stage data from Fool 1 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 # manual_offset <- 5
 # # fc1 = 
@@ -1897,8 +1958,8 @@ simplefc1_22 <- stage_adj %>%
 #   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc1_22}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc1_22, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 # stage_adj <- as.data.frame(stage_adj)
 # stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -1910,7 +1971,7 @@ simplefc1_22 <- stage_adj %>%
 ```
 
 
-```{r plot5fc1_22}
+```{r plot8fc1_22, fig.align = "center", fig.cap = "Figure 3.1.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 # stage_check_plot<- stage_adj%>%
 #   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -1922,7 +1983,7 @@ simplefc1_22 <- stage_adj %>%
 # ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
+#### Export cleaned data
 ```{r savefc1_22}
 #stage_final <- stage_adj %>%
 stage_final <- stage_adj %>%
@@ -1941,7 +2002,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 
 ```
 
-##2022 - Fool2
+### Fool2
 
 
 ```{r importfc2_22, include=FALSE}
@@ -1954,7 +2015,7 @@ stage_raw <- concat_2022(opn_as_dflist(interfiles, year, watershed, site))
 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc2_22, fig.align = "center", fig.cap = 'Figure 3.2.1: Raw data for Fool 2 stage in 2022.', echo=FALSE}
 #quick plot of stage
 
@@ -1963,7 +2024,7 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries to identify any missing datetimes from the dataframe
 ```{r checktimefc2_22, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -1982,15 +2043,17 @@ stage_raw <- full_join(full_ts,stage_raw, by='datetime')
 #identify missing timesteps:
 miss_ts <- filter(stage_raw, is.na(wtr_ht_pt)) %>%
   pull(datetime)
+```
 
+```{r checktime2fc2_22, echo=FALSE, results = 'asis'}
 cat(paste0(
   "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
-1) Plot temperature for quick checks
+##### 1) Plot temperature for quick checks
  
 ```{r chktempfc2_22, fig.align = "center", fig.cap = "Figure 3.2.2: Air temperature data captured by the capacitance rod Fool 2 in 2022.", echo=FALSE}
 
@@ -2000,15 +2063,15 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 ```
 Looks like air temp until ~ID2021
 
-2) Plot raw data with flag if raw level changes by more than 2%.
+##### 2) Plot raw data with flag if raw level changes by more than 2%.
 
-```{r plantflagsfc2_22}
+```{r plantflagsfc2_22, fig.align = "center", fig.cap = "Figure 3.2.3: Raw stage data from Fool 2 2022 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
 ```
 
-3) Manually identify points to be removed or corrected using the flagged plot
+##### 3) Manually identify points to be removed or corrected using the flagged plot
 ```{r badidfc2_22}
 #fool2
 bad_id_fc2_2022 <- c(8421:8424, 10839:10844, 12867:12872)
@@ -2016,12 +2079,15 @@ bad_id_fc2_2022 <- c(8421:8424, 10839:10844, 12867:12872)
 #fool2
 vert_correction_fc1_2022 <- data.frame(ID = c(0:1), offset=c(0.0000))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc2_22, include=FALSE}   
 bad_id <- bad_id_fc2_2022
 vert_correction <- vert_correction_fc1_2022
 ```
 
-4) Vertical adjustments
+##### 4) Vertical adjustments
 ```{r vertcorrectfc2_22}
 
 #function to make vertical correction and interpolate between missing values 
@@ -2039,19 +2105,18 @@ stageAdj<- AdjStage(maxgap=30)
 ```
 
 #### Plot adjusted stage
-```{r plot2fc2_22}
+```{r plot4fc2_22, fig.align = "center", fig.cap = "Figure 3.2.4: Stage data from Fool 2 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
 
-Plot adjusted values only:
+#### Plot adjusted values only:
 ```{r plot5fc2_22, fig.align = "center", fig.cap = "Figure 3.2.5: Same as 3.2.4 but limited to adjusted values only.", echo=FALSE}
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -2072,7 +2137,7 @@ simplefc2_22 <- stage_adj %>%
 ```
 
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc2_22}
 # load manual measurements
 # interfiles <- 'formatted_data/manual_measurements'
@@ -2110,7 +2175,8 @@ simplefc2_22 <- stage_adj %>%
 ```
 
 
-```{r wtrdepthfc2_22}
+#### Manual adjustments: 
+```{r plot6fc2_22,, fig.align = "center", fig.cap = "Figure 3.2.6: Adjusted stage data from Fool 2 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 # manual_offset <- 0
 # # fc1 = 
@@ -2122,8 +2188,8 @@ simplefc2_22 <- stage_adj %>%
 #   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc2_22}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc2_22, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 # stage_adj <- as.data.frame(stage_adj)
 # stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -2135,7 +2201,7 @@ simplefc2_22 <- stage_adj %>%
 ```
 
 
-```{r plot7fc2_22}
+```{r plot8fc2_22, fig.align = "center", fig.cap = "Figure 3.2.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 # stage_check_plot<- stage_adj%>%
 #   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -2147,7 +2213,7 @@ simplefc2_22 <- stage_adj %>%
 # ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
+#### Export cleaned data
 ```{r savefc2_22}
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -2167,7 +2233,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 
 
 
-##2022 - Fool3
+## 2022 - Fool3
 
 
 ```{r importfc3_22, include=FALSE}
@@ -2180,7 +2246,7 @@ stage_raw <- concat_2022(opn_as_dflist(interfiles, year, watershed, site))
 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc3_22, fig.align = "center", fig.cap = 'Figure 3.3.1: Raw data for Fool 3 stage in 2022.', echo=FALSE}
 #quick plot of stage
 ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
@@ -2188,7 +2254,7 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries to identify any missing datetimes from the dataframe
 ```{r checktimefc3_22, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -2207,13 +2273,16 @@ stage_raw <- full_join(full_ts,stage_raw, by='datetime')
 #identify missing timesteps:
 miss_ts <- filter(stage_raw, is.na(wtr_ht_pt)) %>%
   pull(datetime)
+```
+
+```{r checktime2fc3_22, echo=FALSE, results = 'asis'}
 
 cat(paste0(
   "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
 1) Plot temperature for quick checks
  
@@ -2226,7 +2295,7 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 
 2) Plot raw data with flag if raw level changes by more than 2%.
 
-```{r plantflagsfc3_22}
+```{r plantflagsfc3_22, fig.align = "center", fig.cap = "Figure 3.3.3: Raw stage data from Fool 3 2022 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
@@ -2240,15 +2309,18 @@ bad_id_fc3_2022 <- c(10782:10788)
 #fool3
 vert_correction_fc3_2022 <- data.frame(ID = c(8175:8176), offset=c(0))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc3_22, include=FALSE}    
 bad_id <- bad_id_fc3_2022
 
 vert_correction <- vert_correction_fc3_2022
 
 ```
 
-
-```{r vertcorrectfc3_21}
+4) Vertical adjustments
+```{r vertcorrectfc3_22}
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df = stage_raw,maxgap=8)%>%
     mutate(watershed = watershed)%>%
@@ -2261,9 +2333,8 @@ stage_adj<- AdjStage(df = stage_raw,maxgap=8)%>%
 ```
 
 #### Plot adjusted stage
-```{r plot2fc3_22}
+```{r plot4fc3_22, fig.align = "center", fig.cap = "Figure 3.3.4: Stage data from Fool 3 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
 
-#plot adjusted stage
 dyStageAdj(df=stage_adj)
 
 ```
@@ -2273,7 +2344,7 @@ Plot adjusted values only:
 
 dyStageAdjonly<- function(df= stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 300))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -2294,7 +2365,7 @@ simplefc3_22 <- stage_adj %>%
 ```
 
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc3_22}
 # load manual measurements
 # interfiles <- 'formatted_data/manual_measurements'
@@ -2332,7 +2403,8 @@ simplefc3_22 <- stage_adj %>%
 ```
 
 
-```{r wtrdepthfc3_22}
+Manual adjustments: 
+```{r plot6fc3_22,, fig.align = "center", fig.cap = "Figure 3.3.6: Adjusted stage data from Fool 3 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 # manual_offset <- 5
 # # fc1 = 
@@ -2344,8 +2416,8 @@ simplefc3_22 <- stage_adj %>%
 #   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc3_22}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc3_22, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 # stage_adj <- as.data.frame(stage_adj)
 # stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -2357,7 +2429,7 @@ simplefc3_22 <- stage_adj %>%
 ```
 
 
-```{r plot7fc3_22}
+```{r plot8fc3_22, fig.align = "center", fig.cap = "Figure 3.3.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 # stage_check_plot<- stage_adj%>%
 #   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -2368,8 +2440,8 @@ simplefc3_22 <- stage_adj %>%
 # ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
-```{r savefc32022}
+#### Export cleaned data
+```{r savefc3_22}
 stage_final <- stage_adj %>%
       drop_na() %>%
       mutate(date = lubridate::date(datetime)) %>%
@@ -2386,7 +2458,7 @@ write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
 
-##2022 - Fool4
+## 2022 - Fool4
 
 
 ```{r importfc4_22, include=FALSE}
@@ -2400,7 +2472,7 @@ stage_raw <- concat_2022(opn_as_dflist(interfiles, year, watershed, site))
 
 ```
 
-
+Quick raw plot of point data
 ```{r plot1fc4_22, fig.align = "center", fig.cap = 'Figure 3.4.1: Raw data for Fool 4 stage in 2022.', echo=FALSE}
 
 #quick plot of stage
@@ -2409,7 +2481,7 @@ ggplot(stage_raw, aes(datetime,wtr_ht_pt))+
 
 ```
 
-####Create complete timeseries to identify any missing datetimes from the dataframe
+#### Create complete timeseries to identify any missing datetimes from the dataframe
 ```{r checktimefc4_22, echo=FALSE, results = 'asis'}
 #check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
 cat(paste('Datetime intervals greater than 1 include:', sep = ''), checkTimeSteps(), sep = "\n")
@@ -2437,7 +2509,7 @@ cat(paste0(
 
 ```
 
-###Clean Raw Stage
+#### Clean Raw Stage
 
 1) Plot temperature for quick checks
  
@@ -2450,7 +2522,7 @@ DyTemp(airtemp = 'n') #check function if have logger_temp, default is 'y'
 
 2) Plot raw data with flag if raw level changes by more than 2%.
 
-```{r plantflagsfc4_22}
+```{r plantflagsfc4_22, fig.align = "center", fig.cap = "Figure 3.4.3: Raw stage data from Fool 4 2022 with 'flags' where average stage changes by more than 20% in a single timestep", echo=FALSE}
 
 #Raw stage plot
 DyRawStage(df=stage_raw,threshold = 0.2, flag='TRUE')
@@ -2468,16 +2540,18 @@ bad_id_fc4_2022 <- c(9535:9553, 9862:9865)
 #fool3
 vert_correction_fc4_2022<- data.frame(ID = c(8175:8176), offset=c(0))%>%
   mutate(cumOffset = cumsum(offset))
-  
+```
+
+
+```{r badid2fc4_22, include=FALSE}    
 bad_id <- bad_id_fc4_2022
 
 vert_correction <- vert_correction_fc4_2022
 
 ```
 
-
+4) Vertical adjustments
 ```{r vertcorrectfc4_22}
-
 #function to make vertical correction and interpolate between missing values 
 stage_adj<- AdjStage(df= stage_raw,maxgap=8)%>%
     mutate(watershed = watershed)%>%
@@ -2490,8 +2564,8 @@ stageAdj<- AdjStage(maxgap=30)
 ```
 
 #### Plot adjusted stage
-```{r plot2fc4_22}
-#plot adjusted stage
+```{r plot4fc4_22, fig.align = "center", fig.cap = "Figure 3.4.4: Stage data from Fool 4 after the first round of adjustments, which include eliminating points where rod was out of the stream for periodic downloading and eliminating points collected after rod was removed from the stream. Both raw and adjusted values are shown", echo=FALSE}
+
 dyStageAdj(df=stage_adj)
 
 ```
@@ -2500,7 +2574,7 @@ look at the adjusted values only
 ```{r plot3fc4, fig.align = "center", fig.cap = "Figure 3.4.5: Same as 3.4.4 but limited to adjusted values only.", echo=FALSE}
 dyStageAdjonly<- function(df = stageAdj,max=1200){
       tsStageAdj<- xts(dplyr::select(df, datetime, adj_wtr_ht,ID), order.by=df$datetime)
-      dygraph(tsStageAdj) %>% 
+      dygraph(tsStageAdj, main = site) %>% 
             dyAxis('y',label='mm',valueRange = c(0, 800))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
@@ -2519,7 +2593,7 @@ simplefc4_22 <- stage_adj %>%
   drop_na()
 ```
 
-####Check manual measurements
+#### Check manual measurements
 ```{r importmanualfc4_22}
 # load manual measurements
 # interfiles <- 'formatted_data/manual_measurements'
@@ -2559,7 +2633,8 @@ simplefc4_22 <- stage_adj %>%
 ```
 
 
-```{r wtrdepthfc4_22}
+Manual adjustments: 
+```{r plot6fc4_22,, fig.align = "center", fig.cap = "Figure 3.4.6: Adjusted stage data from Fool 4 which includes a manual offset that adjusts all values in the dataframe. "}
 #start with 0 value, change if plots below suggest need for manual adjustment change value. 
 # manual_offset <- 0
 # # fc1 = 
@@ -2571,8 +2646,8 @@ simplefc4_22 <- stage_adj %>%
 #   mutate(wtr_depth = adj_wtr_ht + depth_offset[1] + manual_offset)
 ```
 
-####Compare cleaned water level to manual measurements
-```{r plot4fc4_22}
+#### Compare cleaned water level to manual measurements
+```{r plot7fc7_22, fig.align = "center"}
 #plot difference between measured water depth and manual depth measurement
 # stage_adj <- as.data.frame(stage_adj)
 # stageAdj.man<- dplyr::left_join(manMeas_fil,stage_adj, by = 'datetime') %>%
@@ -2584,7 +2659,7 @@ simplefc4_22 <- stage_adj %>%
 ```
 
 
-```{r plot5fc4_22}
+```{r plot8fc4_22, fig.align = "center", fig.cap = "Figure 3.4.7: Adjusted stage data with manual measurements (points)"}
 #plot water level time series with manual measurements as points
 # stage_check_plot<- stage_adj%>%
 #   dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
@@ -2595,7 +2670,7 @@ simplefc4_22 <- stage_adj %>%
 # ggplotly(stage_check_plot)
 ```
 
-###Export cleaned data
+#### Export cleaned data
 ```{r savefc4_22}
 stage_final <- stage_adj %>%
       drop_na() %>%
@@ -2612,7 +2687,7 @@ file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
 write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
 ```
 
-##2022 Site stack
+## 2022 Site stack
 Stack sites in a plot to 
 1. check interannual variation
 2. verify/modify vertical corrections

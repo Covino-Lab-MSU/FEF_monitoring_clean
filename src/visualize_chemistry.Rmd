@@ -1,0 +1,55 @@
+---
+title: "visualize_chemistry"
+author: "Lauren Kremer"
+date: '2022-07-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+
+```
+
+```{r}
+
+filepath <- paste(getwd(), 'formatted_data', 'chemistry', '2021_NSF_WaterChemistry.csv', sep = '/')
+
+cols <- c('watershed', 'site', 'location')
+dat <- read.table(filepath, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) %>%
+  mutate_each_(funs(factor(.)),cols) %>%
+  mutate(datetime = lubridate::mdy(DATE) + lubridate::hm(Time)) %>%   mutate(date = lubridate::mdy(DATE)) %>%
+  mutate(month = lubridate::month(date, label = TRUE)) %>%
+  mutate(position = as.factor(ifelse(location != "stream" & location!= "outlet", "well", "stream"))) %>%
+  mutate(ws_posit = as.factor(paste(watershed, position, sep = '_')))
+
+str(dat)
+
+```
+
+```{r}
+ggplot(dat[dat$watershed != 'ssfp',], aes(x = month, y = DOC_mg.L, fill = watershed)) +
+  geom_boxplot() +
+  theme(axis.text = element_text(angle = 90))
+```
+
+```{r}
+ggplot(dat[dat$watershed != 'ssfp',], aes(x = month, y = DOC_mg.L, fill = ws_posit)) +
+  geom_boxplot() +
+  theme(axis.text = element_text(angle = 90))
+
+```
+

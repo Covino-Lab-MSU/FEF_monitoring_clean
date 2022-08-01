@@ -1,0 +1,165 @@
+---
+title: "Fraser EF Fluvial geomorphology "
+author: "Adapted for FEF by LKremer"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    theme: journal
+    highlight: breezedark
+    code_folding: hide
+---
+
+```{r}
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+# Make a vector of the packages you need
+neededPackages <- c("dplyr", "ggplot2", "ggnewscale")
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+```
+
+
+```{r}
+# Import measurement data
+
+opn_as_dflist <- function(filepath) {
+   pathlist <- paste(filepath, list.files(filepath), sep= '/')
+   data <- lapply(pathlist, function(x) {
+      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      return(dat)
+   })
+   combined.data <- do.call(rbind, data)
+   return(combined.data)
+}
+
+
+filepath<-"/Users/laurenkremer/Dropbox/Fraser Experimental Forest/clean_FEF_monitoring_data/formatted_data/manual_measurements/2022/geomorphic_cross_sectional"
+
+# Add the appropriate filepath name
+crossec <- opn_as_dflist(filepath)
+```
+
+
+```{r}
+
+ggplot(crossec,aes(x= tape_dist_cm)) +
+  geom_point(aes(y=string_ht_cm)) + 
+  geom_line(aes(y=string_ht_cm)) +
+  geom_line (aes(y=water_surface_from_string_cm), color = 'blue') +
+  scale_y_reverse() +
+  xlab('Tape distance left bank to right (m)') +
+  ylab('String height (m)') +
+  ggtitle('Cross sectional data, Young Gulch 18 August 2021 ') 
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Establish the filepath to your file
+macfilepath<-"/Users/laurenkremer/Dropbox/PhD_coursework/WR696/module_6_fluvial_geomorphology/mannings_bankfull.csv"
+# Add the appropriate filepath name
+mann_bankf <- read.table(macfilepath, skip=0, header=TRUE, sep=",", row.names = NULL, as.is = TRUE)
+
+
+macfilepath<-"/Users/laurenkremer/Dropbox/PhD_coursework/WR696/module_6_fluvial_geomorphology/mannings_crosssection.csv"
+mann_cross <- read.table(macfilepath, skip=0, header=TRUE, sep=",", row.names = NULL, as.is = TRUE)
+```
+
+```{r}
+# From zoom chat: Assume that you measured the slope to be 0.02 and remember that hydraulic radius (R) and depth are nearly identical in wide/shallow natural streams.  This is mean bankfull depth.
+
+hrad <- mean(mann_bankf$Bankfull.Depth..m., na.rm = TRUE)
+slpe <- 0.02
+Tarea <- 3.07
+
+```
+
+
+```{r}
+# Average velocity where k = 1 if R is in meters and V is m/s; k =1.49 if R is in feet and V in ft/s
+
+#Function to calculate velocity give k, mannings coefficient, hydrolic radius and slope
+avgvelocity <- function(k, n, h, s){
+  velocity <- ((k/n)*(h^0.6666))*(s^0.5)
+return(velocity)
+}
+
+velo <- avgvelocity(k = 1, n = 0.13, h = hrad, s = slpe )
+
+print(velo)
+# compare to:
+print(mean(mann_cross$Velocity_mpers))
+```
+
+```{r}
+avgvelocity <- function(n, h, s){
+  velocity <- ((h^0.6666)* sqrt(s))/n
+return(velocity)
+}
+
+velo1 <- avgvelocity(n = 0.07, h = hrad, s = slpe )
+
+```
+
+
+```{r}
+print (velo1 * Tarea)
+```
+
+
+```{r}
+# solving for n 
+Q <- 0.56
+n <- (Q / Tarea) * ((hrad ^ 0.6666) * sqrt(slpe))
+
+print(n)
+```
+
+
+## 2
+```{r}
+plot(mann_bankf$Bankfull.Width..m., mann_bankf$Bankfull.Depth..m., ylim=rev(range(mann_bankf$Bankfull.Depth..m., na.rm = TRUE)))
+```
+
+mann_bankf
+
+
+```{r}
+velo1 <- avgvelocity(n = n, h = hrad, s = slpe )
+Tarea_bnkful <- 169.79
+
+velo1 * Tarea
+
+```
+
+
+
+
+
+
+```{r}
+
+```
+
+## For FIELD DATA: (on cross section .csv)
+Calibrated Manning's n (from part 1d)	0.13
+Slope	0.028
+Total bankful area (m^2)	415.50
+Bankfull Discharge (m^3/s)	0.0
