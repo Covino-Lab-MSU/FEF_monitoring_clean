@@ -1,0 +1,39 @@
+---
+title: "quarto_tabset_example"
+format: html
+editor: visual
+---
+
+::: panel-tabset
+## 2020
+
+::: panel-tabset
+### Fool 1
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+:::
+
+### Fool 2
+:::
+
+## 2021
+
+<div>
+
+### Fool 1
+
+<div>
+
+#### Atmospheric
+
+#### LW1
+
+</div>
+
+</div>
+:::

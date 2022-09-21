@@ -17,7 +17,7 @@ pkgTest <- function(x)
 }
 
 # Make a vector of the packages you need
-neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+neededPackages <- c('tidyverse', 'magrittr', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
 
 # For every package in the vector, apply your pkgTest function
 for (package in neededPackages){pkgTest(package)}
@@ -26,30 +26,51 @@ for (package in neededPackages){pkgTest(package)}
 
 ```{r}
 
-filepath <- paste(getwd(), 'formatted_data', 'chemistry', '2021_NSF_WaterChemistry.csv', sep = '/')
+filepath <- paste(getwd(), 'formatted_data', 'chemistry', sep = '/')
+file_list <- paste(filepath, list.files(filepath, pattern = '*.csv'), sep= '/')
 
-cols <- c('watershed', 'site', 'location')
-dat <- read.table(filepath, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) %>%
-  mutate_each_(funs(factor(.)),cols) %>%
-  mutate(datetime = lubridate::mdy(DATE) + lubridate::hm(Time)) %>%   mutate(date = lubridate::mdy(DATE)) %>%
-  mutate(month = lubridate::month(date, label = TRUE)) %>%
-  mutate(position = as.factor(ifelse(location != "stream" & location!= "outlet", "well", "stream"))) %>%
-  mutate(ws_posit = as.factor(paste(watershed, position, sep = '_')))
+dat <- lapply(file_list, function(x) {
+      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) 
+      return(dat)
+      }) 
 
-str(dat)
+cols <- c('watershed', 'location', 'position', 'type')
 
+concat <- function(dat) {
+  combined.data <- do.call(rbind, dat) #combine datasets as stacked rows
+  combined.data <- combined.data %>%
+    mutate(date = lubridate::mdy(date)) %>% 
+    mutate(month = lubridate::month(ymd(date), label = TRUE)) %>%
+    mutate(year = lubridate::year(date)) %>%
+    separate(label, into = c('watershed', 'location', 'position'), sep = '_', remove = TRUE) %>%
+    arrange(date) %>% 
+    drop_na() %>%
+    select(-c('time'))  %>% 
+    mutate_at(cols, factor)
+   return(combined.data)
+}
+  
+chemdf <- concat(dat)
+
+str(chemdf)
 ```
 
 ```{r}
-ggplot(dat[dat$watershed != 'ssfp',], aes(x = month, y = DOC_mg.L, fill = watershed)) +
+ggplot(chemdf[chemdf$watershed != 'ssfp',], aes(x = month, y = DOC_mg_l, fill = watershed)) +
   geom_boxplot() +
   theme(axis.text = element_text(angle = 90))
 ```
 
 ```{r}
-ggplot(dat[dat$watershed != 'ssfp',], aes(x = month, y = DOC_mg.L, fill = ws_posit)) +
+ggplot(chemdf[chemdf$watershed != 'ssfp',], aes(x = month, y = DOC_mg_l, fill = position)) +
   geom_boxplot() +
   theme(axis.text = element_text(angle = 90))
 
 ```
 
+```{r}
+ggplot(chemdf[chemdf$watershed != 'ssfp',], aes(x = date, y = DOC_mg_l, fill = position)) +
+  geom_boxplot() +
+  theme(axis.text = element_text(angle = 90))
+
+```

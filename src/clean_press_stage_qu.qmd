@@ -1,0 +1,3679 @@
+---
+title: "quarto_tabset_example"
+format: 
+  html:
+    code-fold: true
+    toc: true
+editor: source
+---
+
+This script is used to clean water level data from HOBO water level loggers (U20L-04) designed for surface water level measurements.
+
+Cleaning and QA/QC steps include: <br /> 
+1\) removing bad data <br /> 
+2\) converting stage to water depth <br /> 
+3\) adjusting data for shifts in logger position <br /> 
+4\) checking results against manual measurements.
+
+Inputs are water level logger raw data (periodically downloaded .csvs) and a manual measurement spreadsheet specific to the site being reviewed
+
+Setup: 1. Package and function import from .R script
+
+```{r setup, results = "hide", message = FALSE, warning=FALSE}
+
+knitr::opts_chunk$set(message=F, warning=F, error=F, 
+                      comment=NA, cache=T, R.options=list(width=220), 
+                      fig.align='center', out.width='75%', fig.asp=.75)
+
+pkgTest <- function(x)
+{
+  if (x %in% rownames(installed.packages()) == FALSE) {
+    install.packages(x, dependencies= TRUE)
+  }
+  library(x, character.only = TRUE)
+}
+
+#if(!require(devtools)) install.packages("devtools")
+#devtools::install_github("kassambara/gg1pubr")
+
+# Make a vector of the packages you need
+neededPackages <- c('ezknitr', 'tidyverse', 'dplyr', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly', 'ggpubr') #tools for plot titles 
+
+# For every package in the vector, apply your pkgTest function
+for (package in neededPackages){pkgTest(package)}
+
+source('./functions/ws_transect_pressure_stageFunctions.R') #load helper functions
+
+#devtools::install_github("jeffjjohnston/RStudioConsoleRender") #optional Rstudio Addin for faster figure/html rendering in the console, faster than having knit render a new html each time you want to check/edit a figure (won't display tabsets). Go to Addins above and find 'Render in console' after installing.
+
+#options("RStudioConsoleRender.viewer_mode"="viewer_pane")
+
+# or can try:
+#rmarkdown::render(active_document_path, envir=.GlobalEnv) where active_document_path = 'clean_press_stage_qu.qmd'
+
+#rstudioapi::viewer('clean_press_stage_qu.html') - opens html rather than using 'finder'
+```
+
+Setup: 2. Functions that open and concatenate formatted data files
+
+```{r functions20, results = "hide"}
+
+# A function to open all water level logger data for a 'site' to a list of dataframes
+opn_as_dflist <- function(interfiles, year, watershed, site) {
+   file_path <- paste(getwd(), interfiles, year, watershed, site, sep='/')
+   path_list <- paste(file_path, list.files(file_path), sep= '/')
+   data <- lapply(path_list, function(x) {
+      dat <- read.table(x, skip = 1, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      dat <- head(dat, -3)
+      dat <- dat[, 2:4]
+      colnames(dat) <- c('datetime', 'pressure_kPa', 'temperature_C')
+      # for each item in path list, grab the cap_rod number
+      dat$logger_no <- as.factor(unlist(strsplit(x, "_"))[8])
+      dat$trans_loc <- as.factor(unlist(strsplit(x, "_"))[7])
+      return(dat)
+   })
+}
+
+concat <- function(data) {
+  combined.data <- do.call(rbind, data) #combine datasets as stacked rows
+  combined.data <- combined.data %>%
+    mutate(datetime = lubridate::mdy_hm(datetime)) %>% #convert to datetime
+    arrange(datetime) %>% 
+    drop_na() %>%
+    dplyr::distinct() 
+   return(combined.data)
+}
+
+# load manual measurements
+interfiles <- 'formatted_data/manual_measurements/2020/manual_wells_waterlevel_meas.csv'
+file_path <- paste(getwd(),interfiles, sep='/')
+
+manualMeas <- read.table(file_path, skip=0, header=TRUE, sep=",", row.names = NULL, as.is = TRUE)
+```
+
+::: panel-tabset
+## 2020
+
+::: panel-tabset
+### Fool 1
+
+```{r, results = "hide"}
+
+#load pressure data
+interfiles <- 'formatted_data/stage_pressure'
+year <- 2020
+watershed<- 'fool'
+site <- 'fc1'
+cap.site.label <- 'Fool 1'
+
+press <- concat(opn_as_dflist(interfiles, year, watershed, site))
+
+# load precip data
+interfiles <- 'formatted_data/usfs_precip/fool1_lower_met_wy19_wy21.csv'
+file_path <- paste(getwd(), interfiles, sep='/')
+
+precip <- read.table(file_path, skip=0, header=TRUE, sep=",", row.names = NULL, as.is = TRUE) %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  filter(datetime <= max(press$datetime)) %>%
+  filter(datetime >= min(press$datetime)) %>%   rename_all(~c("datetime", "precip", "cumprecip")) 
+
+#merge precip data w/pressure
+press_raw <- press %>%
+  merge(., precip, by = 'datetime', all=T) %>%
+  mutate(precip = as.numeric(precip)) %>%
+  select(datetime, pressure_kPa, temperature_C, trans_loc, precip)
+```
+
+Quick raw plot of point data
+
+```{r, include=FALSE}
+
+fig.cap <-  paste('Figure 1-watershed. ', year, ' - ', cap.site.label, '.all: Raw data for all HOBO water level loggers in the ', cap.site.label, ' transect - ', year, '.', sep ='')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 4
+
+ggplot(press_raw, aes(datetime, pressure_kPa, color = trans_loc))+
+  geom_line() + 
+  ggtitle(paste(cap.site.label, year, sep = ' '))
+```
+
+```{r}
+
+#Subset based on logger location within the transect
+press_raw_list <- split(press_raw, press_raw$trans_loc)
+
+# Write out single data frames
+for (i in seq(press_raw_list))
+  assign(paste0('press_raw_', press_raw_list[[i]]$trans_loc[i]), press_raw_list[[i]])
+```
+
+::: panel-tabset
+#### Atmospheric
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r, results = 'asis'}
+
+press_raw_atms <- completetimeseries(press_raw_atms)
+
+#identify missing timesteps:
+miss_ts <- filter(press_raw_atms, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, results = 'asis'}
+
+cat(paste0("- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+Keep in mind that the the factory calibrated ranges are 0° to 40°C (32° to 104°F)
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'atms'
+posit_nm <- 'atmospheric'
+long_nm <- 'atmospheric'
+
+fig.cap <-  paste("Figure 1-transect..", year, " - ", cap.site.label, ".", abbr, ": Air temperature data captured by the HOBO water level logger monitoring ", posit_nm, " pressure in ", cap.site.label, " - ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = press_raw_atms, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- press_raw_atms
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10))
+```
+
+3\) Manually identify points to be removed or corrected using the flagged plot (no corrections made for FC1 2020 atmospheric data)
+
+```{r}
+
+# no corrections made for this atmospheric logger
+bad_id_fc1_atms20 <-  c(0)
+
+vert_correction_fc1_atms20<- data.frame(ID = c(0:1), offset=c(0)) %>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+
+bad_id <- bad_id_fc1_atms20
+vert_correction <- vert_correction_fc1_atms20
+```
+
+4\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+press_adj<- AdjPress(df=press_raw_atms, maxgap=8) %>%
+  mutate(watershed = watershed) %>%
+  mutate(site = site) %>%
+  filter(ID > 3) %>% # beginning of data
+  mutate(level_flag = ifelse(pressure_kPa < -65, 'Below Logger',ifelse(pressure_kPa > 75, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+##### Plot adjusted pressure
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.", year, " - ", cap.site.label, ".", abbr, ": Adjusted pressure for ", cap.site.label, " ", posit_nm, " logger in ", year, '.', sep = '')
+
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+dyPressAdj(df=press_adj,min = min(press_adj$adj_press)-5, max = max(press_adj$adj_press +10))
+```
+
+##### Export
+
+```{r}
+
+#format dataframe
+press_final <- press_adj %>%
+  drop_na() %>%
+  mutate(date = lubridate::date(datetime)) %>%
+  mutate(time = format(datetime, format = "%H:%M")) %>%
+  dplyr::select(watershed, site, date, time, adj_press, level_flag) 
+
+#identify paths
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(press_final, file=paste0(file_path, '/',site, 'atms_clean.csv'))
+
+```
+
+Generate simple df for among year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1atms_20 <- press_adj %>%
+  select(datetime, adj_press, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW1 - done
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw1, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6) 
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+# kPa range 0-145, factory calibrated 69kPa to 145 kPa, range at 10,000ft 0 to 7m or 0 to 4m below 10,000 plus 1.6cm for logger sensor height
+```
+
+Water level (h) is given by h=(P-Pr)/(rho \* g) where P is the pressure measured by the sensor in the water, Pr is the pressure measured by the reference sensor (atmospheric pressure), rho is the density of the water in the stream, and g is the acceleration due to gravity.
+
+https://www.onsetcomp.com/files/manual_pdfs/17153-G%20U20L%20Manual.pdf
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw1'
+posit_nm <- 'well'
+long_nm <- 'left ripaian well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label,'.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, ' (', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(stage_well$pressure_kPa)-5, max = max(stage_well$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10))
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc1_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc1_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc1_well20
+vert_correction <- vert_correction_fc1_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+8/5/2020 doesn't make sense except if looked it with other riparian/responsive wells (bottom of Fool 1 tab). There seems to have been precip that was not reported in the data. 
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc1' & position == 'lw1' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format data
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1lw1_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW2-done
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw2, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw2'
+posit_nm <- 'well'
+long_nm <- 'left upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label, '.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc1_well20 <-  c(2034:2125)
+
+vert_correction_fc1_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))  
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc1_well20
+vert_correction <- vert_correction_fc1_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=100) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 100) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=8) #These gaps are short unless the wells are pumped that time of download. Then ~100 points need to be interpolated. 
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>%
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc1' & position == 'lw2' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format ata
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1lw2_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW3-done-check manmeas
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw3, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6) 
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+# kPa range 0-145, factory calibrated 69kPa to 145 kPa, range at 10,000ft 0 to 7m or 0 to 4m below 10,000 plus 1.6cm for logger sensor height
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw3'
+posit_nm <- 'well'
+long_nm <- 'left upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label,'.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, ' (', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc1_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc1_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc1_well20
+vert_correction <- vert_correction_fc1_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = -1, max = 10)
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc1' & position == 'lw1' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format data
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1lw3_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW4-done-check manmeas
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw4, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw4'
+posit_nm <- 'well'
+long_nm <- 'left upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label, '.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc1_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc1_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc1_well20
+vert_correction <- vert_correction_fc1_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc1' & position == 'lw2' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format ata
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1lw4_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### RW1
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_rw1, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'rw1'
+posit_nm <- 'well'
+long_nm <- 'right riparian well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label,'.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=stage_well, threshold = 0.05, min = min(stage_well$pressure_kPa)-5, max = max(stage_well$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, flag='TRUE', min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc1_well20 <-  c(2036:2032)
+
+vert_correction_fc1_well20<- data.frame(ID = c(30:2032), offset=c(0.0013936))%>%  # This addresses a drift over time. How much should y axis change over the number of points it should change by.                       
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc1_well20
+vert_correction <- vert_correction_fc1_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc1' & position == 'rw1' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format ata
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1rw1_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### RW2
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_rw2, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'rw2'
+posit_nm <- 'well'
+long_nm <- 'right upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label, '.',abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm) - 10, max = max(stage_well$hobo_wtr_depth_cm) + 10)
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc1_well20 <-  c(0)
+
+vert_correction_fc1_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc1_well20
+vert_correction <- vert_correction_fc1_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc1' & position == 'rw2' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format dataframe
+press_final <- press_adj %>%
+  drop_na() %>%
+  mutate(date = lubridate::date(datetime)) %>%
+  mutate(time = format(datetime, format = "%H:%M")) %>%
+  dplyr::select(watershed, site, date, time, adj_press, level_flag) 
+
+#identify paths
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(press_final, file=paste0(file_path, '/',site, 'atms_clean.csv'))
+
+```
+
+Generate simple df for among year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc1rw2_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+:::
+
+```{r}
+
+#merge all adjusted datasets for transect
+adj_trans <- do.call('rbind', list(simplefc1rw2_20, simplefc1rw1_20, simplefc1lw1_20, simplefc1lw2_20))
+```
+
+```{r, echo=FALSE}
+fig.cap <-  paste('Figure 2-watershed. ', year, ' - ', cap.site.label, ".all: Adjusted stage data for all transects within the ", cap.site.label, " watershed in ", year, '.',  sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+ggplot(adj_trans, aes(datetime, adj_stage, color = trans_loc))+
+  geom_line() + 
+  ggtitle(paste(watershed, site, year, sep = ' ')) +
+  ylab('adjusted stage (cm)')
+```
+
+### Fool2
+
+```{r, results = "hide"}
+
+# A function to open all water level logger data for a 'site' to a list of dataframes
+opn_as_dflist <- function(interfiles, year, watershed, site) {
+   file_path <- paste(getwd(), interfiles, year, watershed, site, sep='/')
+   path_list <- paste(file_path, list.files(file_path), sep= '/')
+   data <- lapply(path_list, function(x) {
+      dat <- read.table(x, skip = 0, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE)
+      dat <- dat[, 1:3]
+      colnames(dat) <- c('datetime', 'pressure_kPa', 'temperature_C')
+      # for each item in path list, grab the cap_rod number
+      dat$logger_no <- as.factor(unlist(strsplit(x, "_"))[8])
+      dat$trans_loc <- as.factor(unlist(strsplit(x, "_"))[7])
+      return(dat)
+   })
+}
+
+#load pressure data
+interfiles <- 'formatted_data/stage_pressure'
+year <- 2020
+watershed<- 'fool'
+site <- 'fc2'
+cap.site.label <- 'Fool 2'
+
+press <- concat(opn_as_dflist(interfiles, year, watershed, site))
+
+# load precip data
+interfiles <- 'formatted_data/usfs_precip/fool1_lower_met_wy19_wy21.csv'
+file_path <- paste(getwd(), interfiles, sep='/')
+
+precip <- read.table(file_path, skip=0, header=TRUE, sep=",", row.names = NULL, as.is = TRUE) %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  filter(datetime <= max(press$datetime)) %>%
+  filter(datetime >= min(press$datetime)) %>%   rename_all(~c("datetime", "precip", "cumprecip")) 
+
+#merge precip data w/pressure
+press_raw <- press %>%
+  merge(., precip, by = 'datetime', all=T) %>%
+  mutate(precip = as.numeric(precip)) %>%
+  select(datetime, pressure_kPa, temperature_C, trans_loc, precip)
+```
+
+Quick raw plot of point data
+
+```{r, include=FALSE}
+
+fig.cap <-  paste('Figure 1-watershed. ', year, ' - ', cap.site.label, '.all: Raw data for all HOBO water level loggers in the ', cap.site.label, ' transect - ', year, '.', sep ='')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 4
+
+ggplot(press_raw, aes(datetime, pressure_kPa, color = trans_loc))+
+  geom_line() + 
+  ggtitle(paste(cap.site.label, year, sep = ' '))
+```
+
+```{r}
+
+#Subset based on logger location within the transect
+press_raw_list <- split(press_raw, press_raw$trans_loc)
+
+# Write out single data frames
+for (i in seq(press_raw_list))
+  assign(paste0('press_raw_', press_raw_list[[i]]$trans_loc[i]), press_raw_list[[i]])
+```
+
+::: panel-tabset
+#### Atmospheric
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r, results = 'asis'}
+
+completetimeid<- function(df){
+  #check if collection interval is consistent in dataset. Function as written only handles one   interval but can be modified if interval was changed. 
+  ts_interval<- df$datetime[2] - df$datetime[1]
+  #round datetime to nearest whole interval
+  df <- df %>%
+    rowid_to_column(var='ID') %>%
+    mutate(datetime = round_date(datetime, as.period(ts_interval)))
+  #create full timeseries 
+  full_ts <- tibble(datetime=seq.POSIXt(df$datetime[1], df$datetime[length(df$datetime)], by=ts_interval))
+  df <- full_join(full_ts, df, by='datetime')
+  return(df)
+}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+press_raw_atms <- completetimeid(press_raw_atms)
+
+#identify missing timesteps:
+miss_ts <- filter(press_raw_atms, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, results = 'asis'}
+
+cat(paste0("- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+Keep in mind that the the factory calibrated ranges are 0° to 40°C (32° to 104°F)
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'atms'
+posit_nm <- 'atmospheric'
+long_nm <- 'atmospheric'
+
+fig.cap <-  paste("Figure 1-transect..", year, " - ", cap.site.label, ".", abbr, ": Air temperature data captured by the HOBO water level logger monitoring ", posit_nm, " pressure in ", cap.site.label, " - ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = press_raw_atms, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- press_raw_atms
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+3\) Manually identify points to be removed or corrected using the flagged plot (no corrections made for fc2 2020 atmospheric data)
+
+```{r}
+
+# no corrections made for this atmospheric logger
+bad_id_fc2_atms20 <-  c(0)
+
+vert_correction_fc2_atms20<- data.frame(ID = c(0:1), offset=c(0)) %>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+
+bad_id <- bad_id_fc2_atms20
+vert_correction <- vert_correction_fc2_atms20
+```
+
+4\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+press_adj<- AdjPress(df=press_raw_atms, maxgap=8) %>%
+  mutate(watershed = watershed) %>%
+  mutate(site = site) %>%
+  filter(ID > 3) %>% # beginning of data
+  mutate(level_flag = ifelse(pressure_kPa < -65, 'Below Logger',ifelse(pressure_kPa > 75, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+##### Plot adjusted pressure
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.", year, " - ", cap.site.label, ".", abbr, ": Adjusted pressure for ", cap.site.label, " ", posit_nm, " logger in ", year, '.', sep = '')
+
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+dyPressAdj(df=press_adj,min = min(press_adj$adj_press)-5, max = max(press_adj$adj_press +10))
+```
+
+##### Export
+
+```{r}
+
+#format dataframe
+press_final <- press_adj %>%
+  drop_na() %>%
+  mutate(date = lubridate::date(datetime)) %>%
+  mutate(time = format(datetime, format = "%H:%M")) %>%
+  dplyr::select(watershed, site, date, time, adj_press, level_flag) 
+
+#identify paths
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(press_final, file=paste0(file_path, '/',site, 'atms_clean.csv'))
+
+```
+
+Generate simple df for among year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc2atms_20 <- press_adj %>%
+  select(datetime, adj_press, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW1-done
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw1, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6) 
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+# kPa range 0-145, factory calibrated 69kPa to 145 kPa, range at 10,000ft 0 to 7m or 0 to 4m below 10,000 plus 1.6cm for logger sensor height
+```
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw1'
+posit_nm <- 'well'
+long_nm <- 'left ripaian well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label,'.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, ' (', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10))
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, " in ", year, " with flags where average stage changes by more than 5% in a single timestep.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc2_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc2_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc2_well20
+vert_correction <- vert_correction_fc2_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+8/5/2020 doesn't make sense...
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc2' & position == 'lw1' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format data
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc2lw1_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW2-done
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw2, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw2'
+posit_nm <- 'well'
+long_nm <- 'left upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label, '.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc2_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc2_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc2_well20
+vert_correction <- vert_correction_fc2_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc2' & position == 'lw2' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format ata
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc2lw2_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### LW3-done
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_lw3, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6) 
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+# kPa range 0-145, factory calibrated 69kPa to 145 kPa, range at 10,000ft 0 to 7m or 0 to 4m below 10,000 plus 1.6cm for logger sensor height
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'lw3'
+posit_nm <- 'well'
+long_nm <- 'left upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label,'.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, ' (', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc2_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc2_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc2_well20
+vert_correction <- vert_correction_fc2_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min =-5, max = 10)
+```
+
+8/5/2020 doesn't make sense...
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc2' & position == 'lw1' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format data
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc2lw3_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### RW1
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_rw1, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'rw1'
+posit_nm <- 'well'
+long_nm <- 'right riparian well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label,'.', abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, flag='TRUE', min = min(stage_well$hobo_wtr_depth_cm)-5, max = max(stage_well$hobo_wtr_depth_cm +10))
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc2_well20 <-  c(2034:2050, 6935)
+
+vert_correction_fc2_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc2_well20
+vert_correction <- vert_correction_fc2_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc2' & position == 'rw1' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format ata
+stage_final <- stage_adj %>%
+      drop_na() %>%
+      mutate(date = lubridate::date(datetime)) %>%
+      mutate(time = format(datetime, format = "%H:%M")) %>%
+      dplyr::select(watershed, site, date, time, wtr_depth, level_flag) 
+
+#identify file paths   
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(stage_final, file=paste0(file_path, '/',site, '_clean.csv'))
+```
+
+Generate simple plots for among-year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc2rw1_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+#### RW2
+
+```{r}
+
+#merge atms pressure with well df - well pressure = difference between recorded well pressure and atms pressure
+mrg_press_adj <- as.data.frame(press_adj[,c('datetime','adj_press')])
+  
+stage_well <- merge(press_raw_rw2, mrg_press_adj, by = 'datetime') %>%
+  mutate(adj_h2opressure = pressure_kPa - adj_press) %>%
+  mutate(hobo_wtr_depth_cm = (adj_h2opressure*9.98) + 1.6)
+
+stage_well$hobo_wtr_depth_cm[stage_well$hobo_wtr_depth_cm <= 1.6] <-- 0.1
+```
+
+##### Complete timeseries
+
+Create complete timeseries to identify any missing datetimes from the dataframe
+
+```{r}
+
+#check if collection interval is consistent in dataset. Function as written only handles one interval but can be modified if interval was changed. 
+stage_well <- completetimeseries(stage_well)
+
+#identify missing timesteps:
+miss_ts <- filter(stage_well, is.na(pressure_kPa)) %>%
+  pull(datetime)
+```
+
+```{r, include=FALSE, results = 'asis'}
+
+cat(paste0(
+  "- `", 'The number of missing timesteps is ', length(miss_ts), "`", sep = "\n"))
+```
+
+##### Check raw pressure
+
+1\) Plot temperature for quick checks
+
+```{r, include=FALSE}
+
+# Figure caption labels
+abbr <- 'rw2'
+posit_nm <- 'well'
+long_nm <- 'right upslope well'
+
+fig.cap <-  paste('Figure 1-transect.. ', year, ' - ', cap.site.label, '.',abbr, ': Air temperature data captured by the HOBO water level logger monitoring pressure in the ', long_nm, '(', abbr, ') ', cap.site.label, ' - ', year, '.', sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+#| fig-width: 8
+#| fig-height: 3.5
+
+#check temp data
+DyTemp(df = stage_well, airtemp = 'n') #check function if have logger_temp, default is 'y'
+```
+
+2\) Plot raw pressure data with flag if raw level changes by more than 5%.
+
+```{r, include=FALSE}
+
+fig.cap1 <-  paste("Figure 2a-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with cummulative precipitation in 10 minute intervals.", sep = '')
+
+fig.cap2 <-  paste("Figure 2b-transect. ", year, " - ", cap.site.label, ".", abbr, ": Raw pressure data from ", cap.site.label, " ", year, " with flags where stage changes by more than 5% in a single timestep. No flags identified in raw atmospheric data.", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap1
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+plot_df <- stage_well
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+DyRawPP(plot_df, threshold = 0.05, min = min(plot_df$pressure_kPa)-5, max = max(plot_df$pressure_kPa +10))
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap2
+#| fig-width: 8
+#| fig-height: 3.5
+#| column: page
+
+DyRawPress(df=press_raw_atms, threshold = 0.05, min = min(press_raw_atms$pressure_kPa)-5, max = max(press_raw_atms$pressure_kPa +10)
+```
+
+##### Clean raw stage
+
+1\) Plot raw water depth data with flag if raw level changes by more than 5%.
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 3-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Raw stage data from the ", cap.site.label, ' ', long_nm, "  in ", year, " with flags where average stage changes by more than 5% in a single timestep", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#Raw stage plot
+DyRawStage(df=stage_well, threshold = 0.05, min = min(stage_well$hobo_wtr_depth_cm) - 10, max = max(stage_well$hobo_wtr_depth_cm) + 10)
+```
+
+2\) Manually identify points to be removed or corrected using the flagged plot
+
+```{r}
+
+bad_id_fc2_well20 <-  c(0)
+
+vert_correction_fc2_well20<- data.frame(ID = c(0:1), offset=c(0))%>%
+  mutate(cumOffset = cumsum(offset))
+```
+
+```{r, include=FALSE}
+bad_id <- bad_id_fc2_well20
+vert_correction <- vert_correction_fc2_well20
+```
+
+3\) Vertical adjustments
+
+```{r}
+
+#function to make vertical correction and interpolate between missing values 
+stage_adj<- AdjStage(df=stage_well, maxgap=8) %>%
+    mutate(watershed = watershed) %>%
+    mutate(site = site) %>%
+    filter(ID > 30) %>% # adjust to match beginning of data
+    mutate(level_flag = ifelse(pressure_kPa < 0, 'Below Logger',
+    ifelse(pressure_kPa > 145, 'Over Logger', 'In Range')))
+
+#stageAdj<- AdjStage(maxgap=30)
+```
+
+Plot adjusted values only
+
+```{r, echo=FALSE}
+fig.cap <-  paste("Figure 4-transect. ", year, " - ", cap.site.label, ".", abbr, ": Adjusted stage data from ", cap.site.label, ' ', long_nm, "  in ", year, " with cumulated precipitation in 10 minute invervals", sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+plot_df <- stage_adj
+plot_df$precip[plot_df$precip==0]<--0.1 #interactive features of dygraph not working when any series has zero values
+
+#plot adjusted values
+dyStageAdjonly(df=plot_df, min = min(plot_df$adj_stage)-5, max = max(plot_df$adj_stage +10))
+```
+
+4\) Check manual measurements - stream measurements performed from caprod post
+
+```{r}
+
+#format and subset imported data
+manMeas <- manualMeas  %>%
+      #timezone set to MST, change if loggers used MDT/MST
+  mutate(datetime = round_date(mdy_hm(datetime, tz='America/Phoenix'),'30 minutes')) %>% 
+  mutate(water_depth = dep_to_bed-dep_to_water) %>% 
+  filter(., site == 'fc2' & position == 'rw2' )
+  
+cols <- c('watershed', 'site', 'position', 'tech')
+manMeas[cols] <- lapply(manMeas[cols], factor) 
+```
+
+```{r}
+
+#choose a static depth to bed value. Here we are using a mean of manual bed measurements from the top of the caprod post
+stat_to_bed <- manMeas%>%
+  summarize(mean_dep_to_bed = mean(dep_to_bed,na.rm=T))%>%
+  pull(mean_dep_to_bed)
+
+manMeas_fil <- manMeas %>%
+      dplyr::rename(., wtr_depth_not_static = water_depth) %>%
+      mutate(man_wtr_dep_static = stat_to_bed - dep_to_water)
+### 10 to convert mm to cm
+
+# am not using this until cross-year comparison
+depth_offset <- manMeas_fil %>%
+  slice_max(datetime) %>%
+  left_join(stage_adj %>%
+              dplyr::select(datetime, adj_stage)) %>%
+  mutate(depth_offset = man_wtr_dep_static - adj_stage)%>%
+  pull(depth_offset)
+```
+
+##### Manual adjustments:
+
+```{r}
+
+#start with 0 value, change if plots below suggest need for manual adjustment change value. 
+manual_offset <- 0
+
+stage_adj <- stage_adj%>%
+  mutate(wtr_depth = adj_stage + manual_offset)
+```
+
+```{r}
+fig.cap <-  paste("Figure 5-transect.. ", year, " - ", cap.site.label, ".", abbr, ": Difference between sensor measured water depth and manual depth measurement ", cap.site.label, ' ', long_nm, "  in ", year, ".", sep = '')
+```
+
+```{r, eval=FALSE}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+#plot difference between measured water depth and manual depth measurement
+stage_adj <- as.data.frame(stage_adj)
+stageAdj.man<- dplyr::left_join(manMeas_fil, stage_adj, by = 'datetime') %>%
+      mutate(diff = man_wtr_dep_static-wtr_depth)
+
+ggplot(stageAdj.man, aes(datetime, diff))+
+  geom_point(size=3)+
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: 
+#|  - "Figure 6: Adjusted stage data with manual measurements (points)."
+#| column: page
+
+#plot water level time series with manual measurements as points
+stage_check_plot<- stage_adj%>%
+  dplyr::left_join(.,manMeas_fil, by = 'datetime') %>%
+  ggplot(aes(datetime,wtr_depth))+
+    geom_line()+
+    geom_point(aes(datetime, man_wtr_dep_static),size=3,col='red')
+
+ggplotly(stage_check_plot)
+```
+
+Needs more work, manual measurements do not align with depth or dates. Check among year comparisons and precip data.
+
+##### Export
+
+```{r}
+
+#format dataframe
+press_final <- press_adj %>%
+  drop_na() %>%
+  mutate(date = lubridate::date(datetime)) %>%
+  mutate(time = format(datetime, format = "%H:%M")) %>%
+  dplyr::select(watershed, site, date, time, adj_press, level_flag) 
+
+#identify paths
+loc_site<- paste(watershed,site, sep='_') 
+interfiles <- 'clean_data/stage_pressure'
+file_path <- paste(getwd(), interfiles,year,watershed,site, sep='/')
+
+#export
+write_csv(press_final, file=paste0(file_path, '/',site, 'atms_clean.csv'))
+
+```
+
+Generate simple df for among year plots
+
+```{r}
+
+# Simple df of adjusted values for stacked plot (see below)
+simplefc2rw2_20 <- stage_adj %>%
+  select(datetime, adj_stage, site, trans_loc) %>%
+  drop_na()
+```
+
+:::
+
+```{r}
+
+#merge all adjusted datasets for transect
+adj_trans <- do.call('rbind', list(simplefc2rw2_20, simplefc2rw1_20, simplefc2lw1_20, simplefc2lw2_20))
+```
+
+```{r, echo=FALSE}
+fig.cap <-  paste('Figure 2-watershed. ', year, ' - ', cap.site.label, ".all: Adjusted stage data for all transects within the ", cap.site.label, " watershed in ", year, '.',  sep = '')
+```
+
+```{r}
+#| fig-cap: !expr fig.cap
+#| column: page
+
+ggplot(adj_trans, aes(datetime, adj_stage, color = trans_loc))+
+  geom_line() + 
+  ggtitle(paste(watershed, site, year, sep = ' ')) +
+  ylab('adjusted stage (cm)')
+```
+
+### Fool 3
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 4
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+:::
+
+## 2021
+
+::: panel-tabset
+### Fool 1
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 2
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 3
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 4
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+:::
+
+## 2022
+
+::: panel-tabset
+### Fool 1
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 2
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 3
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+
+### Fool 4
+
+::: panel-tabset
+#### Atmospheric
+
+#### LW1
+
+#### LW2
+
+#### LW3
+
+#### LW4
+
+#### RW1
+
+#### RW2
+:::
+:::
+:::

@@ -18,64 +18,6 @@ pkgTest <- function(x)
 #3. add instrument no to each df
 #4. eliminate duplicated dates and rename columns as needed
 
-# interfiles is a subsection of the filepath that links the working directory
-# and the location folder
-# location is the catchment name and a folder that contains site/transect folders
-#(LK)
-opn_concat_psite <- function(interfiles, year, location) {
-   file_path <- paste(getwd(),interfiles, year, location, sep='/')
-   path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
-   positions <- c(1:4) # designate columns to keep
-   data <- lapply(path_list, function(x) {
-      dat <- read.table(x, skip = 1, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) %>%
-         select(positions)
-      dat <- rename(dat, ID = names(dat[1]), 
-                Datetime = names(dat[2]),
-                pressure_kPa = names(dat[3]),
-                temperature_C = names(dat[4]))
-      # for each item in path list, grab the cap_rod number
-      dat$site <- unlist(strsplit(unlist(strsplit(x, "_"))[6], '/'))[4]
-      dat$position <- unlist(strsplit(x, "_"))[7]
-      dat$instrument_no <- unlist(strsplit(x, "_"))[8]
-      return(dat)
-   })
-   combined.data <- do.call(rbind, data) %>%
-      mutate(datetime = lubridate::mdy_hm(Datetime, tz = "America/Denver"))%>%
-      distinct()%>%
-      arrange(datetime) %>%
-      select(-Datetime)
-      
-   return(combined.data)
-}
-
-
-## function to open the conductivity data
-opn_conduct_ssfp <- function(interfiles, year, location) {
-   file_path <- paste(getwd(),interfiles, year, location,  sep='/')
-   path_list <- paste(file_path, list.files(file_path, recursive = TRUE), sep= '/')
-   positions <- c(1:4) # designate columns to keep
-   data <- lapply(path_list, function(x) {
-      dat <- read.table(x, skip = 1, header = TRUE, sep = ",", row.names = NULL, as.is = TRUE) %>%
-         select(positions)
-      # for each item in path list, grab the device number
-      dat$year <- unlist(strsplit(x, "/"))[9]
-      dat$position<- unlist(strsplit(x, "_"))[6]
-      dat$site <- unlist(strsplit(unlist(strsplit(x, "_"))[5], "/"))[5]
-      names(dat) <- c('ID', 'Datetime', 'full_range_us_cm', 'temperature_C', 'year', 'position', 'site')
-      return(dat)
-   })
-   combined.data <- do.call(rbind, data)
-   combined.data <- combined.data %>%
-      mutate(datetime = lubridate::mdy_hm(Datetime))%>%
-      arrange(datetime)%>%
-      distinct()%>%
-      return(combined.data)
-}
-
-
-
-
-
 
 
 #checks TimeSteps (LK)
@@ -102,14 +44,36 @@ checkTimesteps <- function(df) {
 
 # Everything above is required for current script (2 June 2022)
 
-# Copied from caprod stage functions for potential later use
+###Dygraph for raw temperature data
+DyTemp<- function(df, threshold='.2',airtemp='y'){
+   tempRaw <- mutate(df, flag = ifelse(c(0,abs(diff(temperature_C)))/temperature_C > threshold, 48,1))
+   if(airtemp == 'y'){
+      tsTemp<- xts(dplyr::select(tempRaw, datetime,ID,temperature_C,logger_temp), order.by=tempRaw$datetime)
+   }else if(airtemp=='n'){
+      tsTemp<- xts(dplyr::select(tempRaw, datetime,ID,temperature_C), order.by=tempRaw$datetime)
+   }
+   #launch dygraph using xts object
+   dygraph(tsTemp, main = site) %>% 
+      #adds time series launcher
+      dyRangeSelector() %>% 
+      #adds highlight/fade (controled by alpha) of series and formats circle.
+      #dyHighlight(highlightCircleSize = 4, 
+      #            highlightSeriesBackgroundAlpha = 0.2,
+      #            hideOnMouseOut = TRUE)%>% 
+      dyAxis('y',label='Degree C',valueRange = c(-10,50 ))%>%
+      dyAxis('y2',label='ID',independentTicks=T)%>%
+      dySeries('ID',axis='y2')%>%
+      #Assigns legend to follow cursor, also can choose 'always' to always see it
+      dyLegend(show = "always")
+}     
+
 #Dygraph for raw stage - option to flag deviations by slope change 
-DyRawStage<- function(df=stage_raw_prep,threshold = 0.2, flag='TRUE',max=1200){
+DyRawStage<- function(df,threshold = 0.2, flag='TRUE',max=80){
       if (flag){
-            stage_df<- mutate(df, flag = ifelse(c(0,abs(diff(wtr_ht_avg)))/wtr_ht_avg > threshold, 1000,100))
-            tsStage<- xts(dplyr::select(stage_df, datetime,ID,flag,wtr_ht_pt,wtr_ht_avg), order.by=stage_df$datetime)
+            stage_df<- mutate(df, flag = ifelse(c(0,abs(diff(pressure_kPa)))/pressure_kPa > threshold, 80, 75))
+            tsStage<- xts(dplyr::select(stage_df, datetime,ID,flag, pressure_kPa), order.by=stage_df$datetime)
             dygraph(tsStage) %>% 
-                  dyAxis('y',label='mm',valueRange = c(-100, max))%>%
+                  dyAxis('y',label='kPa',valueRange = c(65, max))%>%
                   dyAxis('y2',label='ID',independentTicks=T)%>%
                   dySeries('ID',axis='y2')%>%
                   dyRangeSelector() %>%
@@ -119,9 +83,9 @@ DyRawStage<- function(df=stage_raw_prep,threshold = 0.2, flag='TRUE',max=1200){
                   #dyOptions(drawPoints = TRUE, pointSize = 2)%>%
                   dyLegend(show = "always")
       }else{
-            tsStage<- xts(dplyr::select(stage_df, datetime,ID,water_ht1,water_avg), order.by=stage_df$datetime)
+            tsStage<- xts(dplyr::select(stage_df, datetime,ID, pressure_kPa), order.by=stage_df$datetime)
             dygraph(tsStage) %>% 
-                  dyAxis('y',label='mm',valueRange = c(-100, max))%>%
+                  dyAxis('y',label='kPa',valueRange = c(65, max)) %>%
                   dyAxis('y2',label='ID',independentTicks=T)%>%
                   dySeries('ID',axis='y2')%>%
                   dyRangeSelector() %>%
@@ -136,34 +100,34 @@ DyRawStage<- function(df=stage_raw_prep,threshold = 0.2, flag='TRUE',max=1200){
 
 
 
-AdjStage <- function(df=stage_raw,maxgap=8){
+AdjPress <- function(df,maxgap=8){
       #create Stage Adj dataframe and adj wt ht column
       stageAdj<-df%>%
-            mutate(adj_wtr_ht = wtr_ht_avg)
+            mutate(adj_press = pressure_kPa)
       #for loop that assigns corrected offset within ranges of IDs define in Cor
       for(i in 1:length(vert_correction$ID)){
             if(i<length(vert_correction$ID)){
                   #assigns final ID for each range
                   x<- vert_correction$ID[i+1]-1
                   #adds cumulative offset
-                  stageAdj$adj_wtr_ht[vert_correction$ID[i]:x] <-stageAdj$wtr_ht_avg[vert_correction$ID[i]:x]+vert_correction$cumOffset[i]
+                  stageAdj$pressure_kPa[vert_correction$ID[i]:x] <-stageAdj$pressure_kPa[vert_correction$ID[i]:x]+vert_correction$cumOffset[i]
             }
             #for last set of IDs, assigns the window from the final ID in vert_correction until end of TS
             if(i==length(vert_correction$ID)){
-                  stageAdj$adj_wtr_ht[vert_correction$ID[i]:length(stageAdj$wtr_ht_avg)]<-
-                        stageAdj$wtr_ht_avg[vert_correction$ID[i]:length(stageAdj$wtr_ht_avg)]+vert_correction$cumOffset[i]
+                  stageAdj$adj_press[vert_correction$ID[i]:length(stageAdj$pressure_kPa)]<-
+                        stageAdj$pressure_kPa[vert_correction$ID[i]:length(stageAdj$pressure_kPa)]+vert_correction$cumOffset[i]
                   
             }
       }
       #deletes Bad IDs and interpolates between then if gap is less than 8 in a row
-      stageAdj <- mutate(stageAdj, adj_wtr_ht = na.approx(ifelse(ID %in% bad_id,NA, adj_wtr_ht),maxgap=maxgap,na.rm=F))
+      stageAdj <- mutate(stageAdj, adj_press = na.approx(ifelse(ID %in% bad_id,NA, adj_press),maxgap=maxgap,na.rm=F))
       return(stageAdj)    
 }
 
-dyStageAdj<- function(df= stageAdj,max=1200){
-      tsStageAdj<- xts(dplyr::select(df, datetime,wtr_ht_avg,adj_wtr_ht,ID), order.by=df$datetime)
+dyStageAdj<- function(df,max=80){
+      tsStageAdj<- xts(dplyr::select(df, datetime,pressure_kPa, adj_press ,ID), order.by=df$datetime)
       dygraph(tsStageAdj) %>% 
-            dyAxis('y',label='mm',valueRange = c(-150, max))%>%
+            dyAxis('y',label='kPa',valueRange = c(65, max))%>%
             dyAxis('y2',label='ID',independentTicks=T)%>%
             dySeries('ID',axis='y2')%>%
             dyRangeSelector() %>%
@@ -183,6 +147,6 @@ interpStage <- function(){
       stageCor<-mutate(stageCor,interp_offset= ifelse(datetime <= lastdate,
                                                       na.approx(offset,na.rm=F),last_offset))%>%
             mutate(interp_offset=ifelse(is.na(interp_offset),0,interp_offset))%>%
-            mutate(final_stage = adj_wt_ht+interp_offset)
+            mutate(final_stage = adj_press+interp_offset)
       return(stageCor)
 }

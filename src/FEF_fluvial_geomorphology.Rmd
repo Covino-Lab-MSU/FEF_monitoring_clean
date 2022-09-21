@@ -48,22 +48,83 @@ crossec <- opn_as_dflist(filepath)
 
 
 ```{r}
+plotsubset <- crossec %>%
+  filter(., location == 'dh') %>%
+  mutate(water_surface_from_string_cm = as.numeric(water_surface_from_string_cm))
 
-ggplot(crossec,aes(x= tape_dist_cm)) +
+dhgm <- ggplot(plotsubset,aes(x= tape_dist_cm)) +
   geom_point(aes(y=string_ht_cm)) + 
   geom_line(aes(y=string_ht_cm)) +
   geom_line (aes(y=water_surface_from_string_cm), color = 'blue') +
   scale_y_reverse() +
-  xlab('Tape distance left bank to right (m)') +
-  ylab('String height (m)') +
-  ggtitle('Cross sectional data, Young Gulch 18 August 2021 ') 
+  xlab('Tape distance left bank to right (cm)') +
+  ylab('String height (cm)') +
+  ggtitle(paste('Cross sectional data, Deadhorse Creek', plotsubset$datetime[1]) ) +
+  facet_wrap (~site)
 
+dhgm
 
 ```
 
+```{r}
+plotsubset <- crossec %>%
+  filter(., location == 'lexen') %>%
+  mutate(water_surface_from_string_cm = as.numeric(water_surface_from_string_cm))
+
+lexengm <- ggplot(plotsubset,aes(x= tape_dist_cm)) +
+  geom_point(aes(y=string_ht_cm)) + 
+  geom_line(aes(y=string_ht_cm)) +
+  geom_line (aes(y=water_surface_from_string_cm), color = 'blue') +
+  scale_y_reverse() +
+  xlab('Tape distance left bank to right (cm)') +
+  ylab('String height (cm)') +
+  ggtitle(paste('Cross sectional data, Lexen Creek', plotsubset$datetime[1]) ) +
+  facet_wrap (~site)
+
+lexengm
+```
+
+
+```{r}
+plotsubset <- crossec %>%
+  filter(., location == 'fc') %>%
+  mutate(water_surface_from_string_cm = as.numeric(water_surface_from_string_cm))
+
+fcgm <- ggplot(plotsubset,aes(x= tape_dist_cm)) +
+  geom_point(aes(y=string_ht_cm)) + 
+  geom_line(aes(y=string_ht_cm)) +
+  geom_line (aes(y=water_surface_from_string_cm), color = 'blue') +
+  scale_y_reverse() +
+  xlab('Tape distance left bank to right (cm)') +
+  ylab('String height (cm)') +
+  ggtitle(paste('Cross sectional data, Fool Creek', plotsubset$datetime[1]) ) +
+  facet_wrap (~site)
+
+fcgm
+```
+
+
+```{r}
+plotsubset <- crossec %>%
+  filter(., site == 'fc3') %>%
+  mutate(water_surface_from_string_cm = as.numeric(water_surface_from_string_cm))
 
 
 
+fc3gm <- ggplot(plotsubset,aes(x= tape_dist_cm, colour = notes)) +
+  geom_point(aes(y=string_ht_cm)) + 
+  scale_color_manual(values = c("#000000",  "#996633", "#0066FF","#996633", "#0066FF")) +
+  geom_line(aes(y=string_ht_cm)) +
+  geom_line (aes(y=water_surface_from_string_cm), color = 'blue') +
+  scale_y_reverse() +
+  xlab('Tape distance left bank to right (cm)') +
+  ylab('String height (cm)') +
+  annotate("text", x=subset(plotsubset, plotsubset$notes == 'RWE')$tape_dist_cm-20, y=subset(plotsubset, plotsubset$notes == 'RWE')$water_surface_from_string_cm, label= "RWE") + 
+  annotate("text", x=subset(plotsubset, plotsubset$notes == 'LWE')$tape_dist_cm+20, y=subset(plotsubset, plotsubset$notes == 'LWE')$water_surface_from_string_cm, label= "LWE") + 
+  ggtitle(paste('Cross sectional data, Fool Creek site3 ', plotsubset$datetime[1]) )
+
+fc3gm
+```
 
 
 

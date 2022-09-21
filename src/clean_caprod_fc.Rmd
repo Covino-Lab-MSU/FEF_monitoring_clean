@@ -9,37 +9,6 @@ output:
     code_folding: hide
 ---
 
-
-
-```{r}
- #   toc: true
- #   toc_depth: 1
- #   toc_float: true
-
-#<style>
-#.html-widget {
-#    margin: auto;
-#}
-#</style>
-
-#<style type="text/css">
-#.main-container {
-#  max-width: 1600px;
-#  margin-left: 0px;
-#  margin-right: 100px;
-#}
-#</style>
-
-
-# <style>
-#.main-container {
-#    max-width: 1600px;
-#    margin-left: 0;
-#    margin-right: 100px;
-#}
-#</style>
-```
-
 This script is used to clean water level data from TruTrak capacitance rods
 designed for surface water level measurements.
 Cleaning and QA/QC steps include: 
@@ -59,8 +28,6 @@ knitr::opts_chunk$set(message=F, warning=F, error=F,
                       comment=NA, cache=T, R.options=list(width=220), 
                       fig.align='center', out.width='75%', fig.asp=.75)
 
-#editor_options: 
-#  chunk_output_type: console
 pkgTest <- function(x)
 {
   if (x %in% rownames(installed.packages()) == FALSE) {
@@ -70,7 +37,7 @@ pkgTest <- function(x)
 }
 
 # Make a vector of the packages you need
-neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly') #tools for plot titles 
+neededPackages <- c('tidyverse', 'lubridate', 'xts', 'dygraphs', 'ggrepel','knitr', 'plotly', 'ggpubr') #tools for plot titles 
 
 # For every package in the vector, apply your pkgTest function
 for (package in neededPackages){pkgTest(package)}
@@ -80,11 +47,16 @@ source('./functions/stageFunctions.R') #load helper functions
 #if(!require(devtools)) install.packages("devtools")
 #devtools::install_github("kassambara/gg1pubr")
 #install.packages("ggpubr")
-library(ggpubr)
+
 ```
 
 #### Additional functions
 Functions that open and concatenate formatted data files
+
+
+## 2020 {.tabset .tabset-fade}
+
+### Fool1 {.tabset .tabset-fade .tabset-pills}
 
 ```{r functions, include=FALSE}
 
@@ -115,9 +87,6 @@ concat_2020 <- function(data) {
 }
 ```
 
-## 2020 {.tabset .tabset-fade}
-
-### Fool1 {.tabset .tabset-fade .tabset-pills}
 
 Caprod data collection terminated on November 4, 2020 for all Fool sites except for Fool1, which was noted to be pulled by Kelly on October 20, 2020 (ID~16000)
 

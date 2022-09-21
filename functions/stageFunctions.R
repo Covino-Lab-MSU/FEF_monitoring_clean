@@ -48,7 +48,7 @@ checkTimeSteps<- function(df=stage_raw$datetime){
 
 ###Dygraph for raw temperature data
 DyTemp<- function(threshold='.2',airtemp='y'){
-      tempRaw<- mutate(stage_raw, flag = ifelse(c(0,abs(diff(water_temp)))/water_temp > threshold, 48,1))
+      tempRaw <- mutate(stage_raw, flag = ifelse(c(0,abs(diff(water_temp)))/water_temp > threshold, 48,1))
       if(airtemp == 'y'){
             tsTemp<- xts(dplyr::select(tempRaw, datetime,ID,water_temp,logger_temp), order.by=tempRaw$datetime)
       }else if(airtemp=='n'){
@@ -120,7 +120,7 @@ AdjStage <- function(df=stage_raw, maxgap=8){
                   #assigns final ID for each range
                   x<- vert_correction$ID[i+1]-1
                   #adds cumulative offset
-                  stageAdj$adj_wtr_ht[vert_correction$ID[i]:x] <-stageAdj$wtr_ht_avg[vert_correction$ID[i]:x]+vert_correction$cumOffset[i]
+                  stageAdj$adj_wtr_ht[vert_correction$ID[i]:x] <- stageAdj$wtr_ht_avg[vert_correction$ID[i]:x]+vert_correction$cumOffset[i]
             }
             #for last set of IDs, assigns the window from the final ID in vert_correction until end of TS
             if(i==length(vert_correction$ID)){
